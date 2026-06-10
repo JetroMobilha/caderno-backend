@@ -1,4 +1,4 @@
-# caderno-app
+# caderno-backend
 
 Um caderno digital focado em produtividade, permitindo escrita manual fluida, emulação de folhas reais e colaboração em tempo real.
 
