@@ -3,6 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\PaymentController;
 
 /*
 |--------------------------------------------------------------------------
@@ -43,5 +44,17 @@ Route::middleware('auth:sanctum')->group(function () {
         return $request->user();
     });
 
+    Route::middleware('auth:sanctum')->group(function () {
+        // ... as tuas rotas de logout e user ...
+
+        // Rota para o Flutter pedir a referência do Multicaixa
+        Route::post('/pay/multicaixa', [PaymentController::class, 'generateReference']);
+    });
+
+    
+
     // FUTURO: Aqui vão entrar as rotas de criar Cadernos, Disciplinas, etc!
 });
+
+// Rota pública para a API de pagamentos avisar o nosso servidor
+Route::post('/webhooks/payment-confirmation', [PaymentController::class, 'webhookConfirmation']);
