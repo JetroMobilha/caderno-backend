@@ -44,15 +44,15 @@ Route::middleware('auth:sanctum')->group(function () {
         return $request->user();
     });
 
-    Route::middleware('auth:sanctum')->group(function () {
-        // ... as tuas rotas de logout e user ...
-
-        // Rota para o Flutter pedir a referência do Multicaixa
-        Route::post('/pay/multicaixa', [PaymentController::class, 'generateReference']);
-    });
-
+    // Rota para o Flutter pedir a referência do Multicaixa
+    Route::post('/pay/multicaixa', [PaymentController::class, 'generateReference']);
     
+    // Rotas das Disciplinas (que fizemos antes)
+    Route::apiResource('subjects', App\Http\Controllers\SubjectController::class);
 
+    // Rotas dos Cadernos (Aninhadas na Disciplina)
+    Route::get('/subjects/{subject_id}/notebooks', [App\Http\Controllers\NotebookController::class, 'index']);
+    Route::post('/subjects/{subject_id}/notebooks', [App\Http\Controllers\NotebookController::class, 'store']);
     // FUTURO: Aqui vão entrar as rotas de criar Cadernos, Disciplinas, etc!
 });
 
