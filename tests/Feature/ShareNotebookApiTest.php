@@ -14,6 +14,9 @@ class ShareNotebookApiTest extends TestCase
 
     public function test_user_can_share_notebook_with_another_user()
     {
+        // Desliga o escudo para vermos o erro real!
+        $this->withoutExceptionHandling();
+        
         // 1. Criar o dono do caderno (Jetro)
         $owner = User::factory()->create();
         $this->actingAs($owner, 'sanctum');
