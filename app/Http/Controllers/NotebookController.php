@@ -29,6 +29,7 @@ class NotebookController extends Controller
             'cover_type' => 'nullable|string',
             'color' => 'nullable|string|max:50',
             'cover_image' => 'nullable|string|max:255',
+            'line_type' => 'nullable|string|max:50',
         ]);
 
         // 3. Criar e associar o caderno
@@ -37,6 +38,7 @@ class NotebookController extends Controller
             'cover_type' => $request->cover_type ?? 'basic',
             'color' => $request->color ?? '#000000',
             'cover_image' => $request->cover_image ?? null,
+            'line_type' => $request->line_type ?? null,
         ]);
 
         return response()->json($notebook, 201);

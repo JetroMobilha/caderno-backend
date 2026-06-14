@@ -30,7 +30,8 @@ class NotebookApiTest extends TestCase
             'title' => 'Mecânica Quântica',
             'cover_type' => 'capa_azul_ondas',
             'color' => '#FF0000',               
-            'cover_image' => 'url/imagem.png'    
+            'cover_image' => 'url/imagem.png',
+            'line_type' => 'grid'    
         ];
 
         // 4. Fazemos o pedido POST para a rota (que vamos criar a seguir)
@@ -39,7 +40,9 @@ class NotebookApiTest extends TestCase
 
         // 5. Esperamos que crie com sucesso (201)
         $response->assertStatus(201)
-                 ->assertJsonFragment(['title' => 'Mecânica Quântica','color' => '#FF0000']);
+                 ->assertJsonFragment(['title' => 'Mecânica Quântica'
+                 ,'color' => '#FF0000'
+                 ,'line_type' => 'grid']);
 
         // 6. Verificamos se gravou na Base de Dados com o subject_id correto
         $this->assertDatabaseHas('notebooks', [
