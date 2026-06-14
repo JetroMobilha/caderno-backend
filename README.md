@@ -1,7 +1,5 @@
 # 📓 Caderno Digital - Backend (API)
 
-# 📓 Caderno Digital - Backend (API)
-
 [![Testes Automatizados](https://github.com/JetroMobilha/caderno-backend/actions/workflows/tests.yml/badge.svg)](https://github.com/JetroMobilha/caderno-backend/actions/workflows/tests.yml)
 
 Bem-vindo ao repositório backend do projeto **Caderno Digital**, uma plataforma educacional pensada e otimizada para os estudantes universitários em Angola. 🇦🇴
