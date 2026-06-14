@@ -10,7 +10,13 @@ class Notebook extends Model
 {
     use HasFactory,SoftDeletes;
 
-    protected $fillable = ['subject_id', 'title', 'cover_type'];
+    protected $fillable = [
+        'subject_id',
+        'title', 
+        'cover_type',
+        'color',
+        'cover_image',
+    ];
 
     // Um caderno pertence a uma disciplina
     public function subject() {

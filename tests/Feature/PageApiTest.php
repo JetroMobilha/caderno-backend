@@ -44,7 +44,9 @@ class PageApiTest extends TestCase
 
         $payload = [
             'page_number' => 1,
-            'stroke_data' => $mockStrokeData
+            'stroke_data' => $mockStrokeData,
+            'header_data' => ['title' => 'Aula Prática 1'], 
+            'footer_data' => ['page' => '1 de 10'],
         ];
 
         // 3. Fazer o pedido POST para salvar os traços na página do caderno

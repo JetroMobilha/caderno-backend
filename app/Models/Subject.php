@@ -10,7 +10,12 @@ class Subject extends Model
 {
     use HasFactory,SoftDeletes;
 
-    protected $fillable = ['user_id', 'name', 'color'];
+    protected $fillable = [
+        'user_id',
+        'name',
+        'color',
+        'icon',
+    ];
 
     // Uma disciplina pertence a um utilizador
     public function user() {

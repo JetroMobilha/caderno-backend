@@ -26,13 +26,17 @@ class NotebookController extends Controller
         // 2. Validar os dados enviados pelo Flutter
         $request->validate([
             'title' => 'required|string|max:255',
-            'cover_type' => 'nullable|string'
+            'cover_type' => 'nullable|string',
+            'color' => 'nullable|string|max:50',
+            'cover_image' => 'nullable|string|max:255',
         ]);
 
         // 3. Criar e associar o caderno
         $notebook = $subject->notebooks()->create([
             'title' => $request->title,
             'cover_type' => $request->cover_type ?? 'basic',
+            'color' => $request->color ?? '#000000',
+            'cover_image' => $request->cover_image ?? null,
         ]);
 
         return response()->json($notebook, 201);

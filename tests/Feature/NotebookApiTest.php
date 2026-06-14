@@ -28,7 +28,9 @@ class NotebookApiTest extends TestCase
         // 3. Os dados do caderno que o Flutter vai enviar
         $payload = [
             'title' => 'Mecânica Quântica',
-            'cover_type' => 'capa_azul_ondas'
+            'cover_type' => 'capa_azul_ondas',
+            'color' => '#FF0000',               
+            'cover_image' => 'url/imagem.png'    
         ];
 
         // 4. Fazemos o pedido POST para a rota (que vamos criar a seguir)
@@ -37,7 +39,7 @@ class NotebookApiTest extends TestCase
 
         // 5. Esperamos que crie com sucesso (201)
         $response->assertStatus(201)
-                 ->assertJsonFragment(['title' => 'Mecânica Quântica']);
+                 ->assertJsonFragment(['title' => 'Mecânica Quântica','color' => '#FF0000']);
 
         // 6. Verificamos se gravou na Base de Dados com o subject_id correto
         $this->assertDatabaseHas('notebooks', [

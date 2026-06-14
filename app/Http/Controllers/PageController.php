@@ -30,14 +30,19 @@ class PageController extends Controller
         // 2. Validar os dados do Flutter
         $request->validate([
             'page_number' => 'required|integer',
-            'stroke_data' => 'required|array' // Garante que vem um array/json válido
+            'stroke_data' => 'required|array' ,
+            'header_data' => 'nullable|array',
+            'footer_data' => 'nullable|array',
+            // Garante que vem um array/json válido
         ]);
 
         // 3. Usar updateOrCreate: Se a página 1 já existir, atualiza os traços. 
         // Se não existir, cria uma nova! Isto é perfeito para sincronização em tempo real.
         $page = $notebook->pages()->updateOrCreate(
             ['page_number' => $request->page_number],
-            ['stroke_data' => $request->stroke_data]
+            ['stroke_data' => $request->stroke_data],
+            ['header_data' => $request->header_data],
+            ['footer_data' => $request->footer_data]
         );
 
         return response()->json($page, 201);

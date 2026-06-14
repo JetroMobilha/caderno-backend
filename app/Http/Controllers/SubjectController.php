@@ -18,12 +18,14 @@ class SubjectController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255',
-            'color' => 'nullable|string|max:7',
+            'color' => 'nullable|string|max:9',
+            'icon' => 'nullable|string|max:255',
         ]);
 
         $subject = $request->user()->subjects()->create([
             'name' => $request->name,
             'color' => $request->color ?? '#000000',
+            'icon' => $request->icon ?? null,
         ]);
 
         return response()->json($subject, 201);
