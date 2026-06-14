@@ -69,4 +69,24 @@ class AuthApiTest extends TestCase
         $response->assertStatus(200)
                  ->assertJsonFragment(['message' => 'Sessão terminada com sucesso']);
     }
+
+    public function test_login_blocks_after_too_many_attempts()
+    {
+        // 1. Simular um hacker a tentar fazer login com a password errada 5 vezes seguidas
+        for ($i = 0; $i < 5; $i++) {
+            $this->postJson('/api/login', [
+                'email' => 'estudante@email.com',
+                'password' => 'senha_errada',
+            ]);
+        }
+
+        // 2. A 6ª tentativa: O Escudo deve ser ativado!
+        $response = $this->postJson('/api/login', [
+            'email' => 'estudante@email.com',
+            'password' => 'outra_senha_errada',
+        ]);
+
+        // 3. Esperamos um Erro 429 (Too Many Requests - Demasiados Pedidos)
+        $response->assertStatus(429);
+    }
 }

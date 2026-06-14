@@ -27,7 +27,9 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 |--------------------------------------------------------------------------
 */
 Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
+ 
+// Rota de Login protegida contra Força Bruta (Máximo 5 tentativas por minuto)
+Route::post('/login', [\App\Http\Controllers\AuthController::class, 'login'])->middleware('throttle:5,1');
 
 
 /*
@@ -59,7 +61,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Rota para partilhar um caderno
     Route::post('/notebooks/{notebook_id}/share', [App\Http\Controllers\NotebookShareController::class, 'store']);
-    
+    // Rotas das Páginas
+    Route::get('/notebooks/{notebook_id}/pages', [App\Http\Controllers\PageController::class, 'index']);
+    Route::post('/notebooks/{notebook_id}/pages', [App\Http\Controllers\PageController::class, 'store']);
+
+    Route::delete('/subjects/{subject_id}/notebooks/{notebook_id}', [App\Http\Controllers\NotebookController::class, 'destroy']);
     // FUTURO: Aqui vão entrar as rotas de criar Cadernos, Disciplinas, etc!
 });
 

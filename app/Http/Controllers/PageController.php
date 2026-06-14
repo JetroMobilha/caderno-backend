@@ -8,6 +8,19 @@ use App\Models\Page;
 
 class PageController extends Controller
 {
+
+// Listar páginas de um caderno com paginação
+    public function index(Request $request, $notebook_id)
+    {
+        $notebook = \App\Models\Notebook::findOrFail($notebook_id);
+
+        // A MÁGICA: Em vez de usar ->get(), usamos ->paginate(20)
+        // Ordenamos pelo número da página para o Flutter receber na ordem certa
+        $pages = $notebook->pages()->orderBy('page_number', 'asc')->paginate(20);
+
+        return response()->json($pages);
+    }
+    
     // Salvar ou atualizar os traços de uma página
     public function store(Request $request, $notebook_id)
     {

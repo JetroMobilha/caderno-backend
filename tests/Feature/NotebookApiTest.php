@@ -45,4 +45,27 @@ class NotebookApiTest extends TestCase
             'subject_id' => $subject->id
         ]);
     }
+
+    public function test_user_can_soft_delete_a_notebook()
+    {
+        // 1. Criar utilizador, disciplina e caderno
+        $user = User::factory()->create();
+        $this->actingAs($user, 'sanctum');
+
+        $subject = \App\Models\Subject::create(['user_id' => $user->id, 'name' => 'Física', 'color' => '#FFF']);
+        $notebook = $subject->notebooks()->create(['title' => 'Mecânica', 'cover_type' => 'basic']);
+
+        // 2. Fazer o pedido de DELETE
+        $response = $this->deleteJson("/api/subjects/{$subject->id}/notebooks/{$notebook->id}");
+
+        // 3. Esperar que devolva 200 OK
+        $response->assertStatus(200)
+                 ->assertJsonFragment(['message' => 'Caderno movido para a lixeira.']);
+
+        // 4. A Mágica do Soft Delete: O caderno AINDA tem de estar na BD, 
+        // mas a coluna 'deleted_at' já não pode ser nula!
+        $this->assertSoftDeleted('notebooks', [
+            'id' => $notebook->id
+        ]);
+    }
 }
