@@ -66,6 +66,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/notebooks/{notebook_id}/pages', [App\Http\Controllers\PageController::class, 'store']);
 
     Route::delete('/subjects/{subject_id}/notebooks/{notebook_id}', [App\Http\Controllers\NotebookController::class, 'destroy']);
+    
+    Route::post('/notebooks/{notebook_id}/webrtc/signal', [\App\Http\Controllers\WebRtcController::class, 'signal']);
+    
     // FUTURO: Aqui vão entrar as rotas de criar Cadernos, Disciplinas, etc!
 });
 
