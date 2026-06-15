@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Notebook;
 use App\Models\User;
+use Illuminate\Support\Facades\Gate;
 
 class NotebookShareController extends Controller
 {
@@ -33,5 +34,14 @@ class NotebookShareController extends Controller
         ]);
 
         return response()->json(['message' => 'Caderno partilhado com sucesso!'], 200);
+    }
+
+    public function destroy(Request $request, Notebook $notebook, User $user)
+    {
+        Gate::authorize('delete', $notebook); // Só o dono pode remover pessoas
+        
+        $notebook->sharedUsers()->detach($user->id);
+
+        return response()->json(['message' => 'Acesso removido com sucesso.']);
     }
 }

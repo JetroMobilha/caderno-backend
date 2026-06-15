@@ -68,6 +68,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Rota para partilhar um caderno
     Route::post('/notebooks/{notebook_id}/share', [App\Http\Controllers\NotebookShareController::class, 'store']);
+    Route::delete('/notebooks/{notebook}/share/{user}', [\App\Http\Controllers\NotebookShareController::class, 'destroy']);
     // Rotas das Páginas
     Route::get('/notebooks/{notebook_id}/pages', [App\Http\Controllers\PageController::class, 'index']);
     Route::post('/notebooks/{notebook_id}/pages', [App\Http\Controllers\PageController::class, 'store']);
