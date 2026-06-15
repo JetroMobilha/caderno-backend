@@ -16,7 +16,9 @@ class WebRtcController extends Controller
             'receiver_id' => 'nullable|integer' 
         ]);
 
-        $notebook = Notebook::findOrFail($notebook_id);
+        // Valida se o utilizador é dono OU se o caderno foi partilhado com ele
+        $notebook = $request->user()->notebooks()->find($notebook_id) 
+                 ?? $request->user()->sharedNotebooks()->findOrFail($notebook_id);
 
         // 2. Preparar o pacote de dados
         $data = [

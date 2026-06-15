@@ -54,6 +54,12 @@ class User extends Authenticatable
         return $this->hasMany(Subject::class);
     }
 
+    // Atalho para aceder a todos os cadernos do utilizador através das disciplinas
+    public function notebooks()
+    {
+        return $this->hasManyThrough(Notebook::class, Subject::class);
+    }
+
     // Um utilizador tem acesso a VÁRIOS cadernos partilhados
     public function sharedNotebooks()
     {

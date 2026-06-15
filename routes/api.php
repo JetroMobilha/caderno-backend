@@ -56,6 +56,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/subjects/{subject_id}/notebooks', [App\Http\Controllers\NotebookController::class, 'index']);
     Route::post('/subjects/{subject_id}/notebooks', [App\Http\Controllers\NotebookController::class, 'store']);
     
+    // Rota para exportar o caderno para PDF
+    Route::get('/notebooks/{notebook_id}/export-pdf', [App\Http\Controllers\NotebookController::class, 'exportPdf']);
+
     // Rota para o Flutter salvar/sincronizar os traços de uma página de um caderno
     Route::post('/notebooks/{notebook_id}/pages', [App\Http\Controllers\PageController::class, 'store']);
 
