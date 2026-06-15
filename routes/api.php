@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\PaymentController;
+use Illuminate\Support\Facades\Broadcast;
 
 /*
 |--------------------------------------------------------------------------
@@ -39,6 +40,12 @@ Route::post('/login', [\App\Http\Controllers\AuthController::class, 'login'])->m
 */
 Route::middleware('auth:sanctum')->group(function () {
     
+    // Rota para autenticação do canal de transmissão (Broadcasting)
+    // O RouteServiceProvider já aplica o prefixo 'api' a este ficheiro.
+    Broadcast::routes(['middleware' => ['auth:sanctum']]);
+    // Carrega a lógica de autorização dos canais! (Faltava isto)
+    require base_path('routes/channels.php');
+    
     Route::post('/logout', [AuthController::class, 'logout']);
     
     // Devolve os dados do utilizador autenticado
@@ -58,9 +65,6 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // Rota para exportar o caderno para PDF
     Route::get('/notebooks/{notebook_id}/export-pdf', [App\Http\Controllers\NotebookController::class, 'exportPdf']);
-
-    // Rota para o Flutter salvar/sincronizar os traços de uma página de um caderno
-    Route::post('/notebooks/{notebook_id}/pages', [App\Http\Controllers\PageController::class, 'store']);
 
     // Rota para partilhar um caderno
     Route::post('/notebooks/{notebook_id}/share', [App\Http\Controllers\NotebookShareController::class, 'store']);

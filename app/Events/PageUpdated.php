@@ -12,18 +12,24 @@ use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 use App\Models\Page;
 
-class PageUpdated implements ShouldBroadcastNow
+class PageUpdated implements ShouldBroadcastNow // ShouldBroadcastNow para latência mínima
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
-    public $page;
+    public $notebookId;
+    public $pageId;
+    public $pageNumber;
+    public $newStrokes; // Esta propriedade conterá apenas os traços que foram adicionados/atualizados
 
     /**
      * Create a new event instance.
      */
-    public function __construct(Page $page)
+    public function __construct(int $notebookId, int $pageId, int $pageNumber, array $newStrokes)
     {
-        $this->page = $page;
+        $this->notebookId = $notebookId;
+        $this->pageId = $pageId;
+        $this->pageNumber = $pageNumber;
+        $this->newStrokes = $newStrokes;
     }
 
     /**
@@ -31,18 +37,28 @@ class PageUpdated implements ShouldBroadcastNow
      */
     public function broadcastOn(): array
     {
-        // Criamos uma "sala" específica para o caderno
         return [
-            new PresenceChannel('notebook.' . $this->page->notebook_id),
+            new PresenceChannel('notebook.' . $this->notebookId),
         ];
     }
 
     /**
      * Nome do evento que o Flutter vai escutar.
-     * Se não definires isto, o Laravel usa o nome da classe.
      */
     public function broadcastAs(): string
     {
-        return 'page.updated';
+        return 'page.strokes.added'; // Nome mais específico para o evento
+    }
+
+    /**
+     * Get the data to broadcast.
+     */
+    public function broadcastWith(): array
+    {
+        return [
+            'page_id' => $this->pageId,
+            'page_number' => $this->pageNumber,
+            'strokes' => $this->newStrokes,
+        ];
     }
 }

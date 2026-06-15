@@ -44,16 +44,32 @@ class PageController extends Controller
             // Garante que vem um array/json válido
         ]);
 
-        // 3. Usar updateOrCreate: Se a página 1 já existir, atualiza os traços. 
-        // Se não existir, cria uma nova! Isto é perfeito para sincronização em tempo real.
-        $page = $notebook->pages()->updateOrCreate(
-            ['page_number' => $request->page_number],
-            $request->only(['stroke_data', 'header_data', 'footer_data'])
-        );
+        // Encontra a página ou cria uma nova se não existir
+        $page = $notebook->pages()->firstOrNew(['page_number' => $request->page_number]);
+
+        // Obtém os traços existentes, ou um array vazio se for uma nova página
+        $existingStrokes = $page->stroke_data ?? [];
+
+        // Obtém os novos traços da requisição (assumimos que o Flutter envia apenas os novos)
+        $newStrokes = $request->stroke_data;
+
+        // Combina os traços existentes com os novos
+        $mergedStrokes = array_merge($existingStrokes, $newStrokes);
+
+        // Atualiza a página com os traços combinados e outros dados
+        $page->stroke_data = $mergedStrokes;
+        // Atualiza header_data e footer_data apenas se forem fornecidos na requisição
+        if ($request->has('header_data')) {
+            $page->header_data = $request->header_data;
+        }
+        if ($request->has('footer_data')) {
+            $page->footer_data = $request->footer_data;
+        }
+        $page->save(); // Salva a página
 
         // BROADCAST: Avisa os outros utilizadores que a página mudou (Tempo Real)
         // O método toOthers() garante que quem desenhou não receba o próprio traço de volta
-        broadcast(new PageUpdated($page))->toOthers();
+        broadcast(new PageUpdated($notebook->id, $page->id, $page->page_number, $newStrokes))->toOthers();
 
         return response()->json($page, 201);
     }

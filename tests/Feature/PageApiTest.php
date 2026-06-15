@@ -75,8 +75,10 @@ class PageApiTest extends TestCase
         ]);
 
         // Verifica se o evento de sincronização em tempo real foi disparado
-        Event::assertDispatched(PageUpdated::class, function ($event) {
-            return $event->page->page_number === 1;
+        Event::assertDispatched(PageUpdated::class, function ($event) use ($payload) {
+            return $event->notebookId === $this->notebook->id &&
+                   $event->pageNumber === 1 &&
+                   $event->newStrokes === $payload['stroke_data'];
         });
 
         // 2. Testar Atualização (updateOrCreate)
@@ -94,6 +96,14 @@ class PageApiTest extends TestCase
         $this->assertEquals(1, Page::where('notebook_id', $this->notebook->id)->count());
         
         $page = Page::first();
-        $this->assertEquals(50, $page->stroke_data[0]['x']);
+        // A página deve conter os traços iniciais e os novos traços combinados
+        $expectedMergedStrokes = array_merge($payload['stroke_data'], $updatePayload['stroke_data']);
+        $this->assertEquals($expectedMergedStrokes, $page->stroke_data);
+
+        Event::assertDispatched(PageUpdated::class, function ($event) use ($updatePayload) {
+            return $event->notebookId === $this->notebook->id &&
+                   $event->pageNumber === 1 &&
+                   $event->newStrokes === $updatePayload['stroke_data'];
+        });
     }
 }
