@@ -61,8 +61,7 @@ class NotebookApiTest extends TestCase
         $notebook = $subject->notebooks()->create(['title' => 'Mecânica', 'cover_type' => 'basic']);
 
         // 2. Fazer o pedido de DELETE
-        $response = $this->deleteJson("/api/subjects/{$subject->id}/notebooks/{$notebook->id}");
-
+        $response = $this->deleteJson("/api/notebooks/{$notebook->id}");
         // 3. Esperar que devolva 200 OK
         $response->assertStatus(200)
                  ->assertJsonFragment(['message' => 'Caderno movido para a lixeira.']);

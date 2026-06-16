@@ -2,25 +2,14 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Broadcast;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\PaymentController;
-use Illuminate\Support\Facades\Broadcast;
-
-/*
-|--------------------------------------------------------------------------
-| API Routes
-|--------------------------------------------------------------------------
-|
-| Here is where you can register API routes for your application. These
-| routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "api" middleware group. Make something great!
-|
-*/
-
-Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
-    return $request->user();
-});
-
+use App\Http\Controllers\SubjectController;
+use App\Http\Controllers\NotebookController;
+use App\Http\Controllers\NotebookShareController;
+use App\Http\Controllers\PageController;
+use App\Http\Controllers\WebRtcController;
 
 /*
 |--------------------------------------------------------------------------
@@ -28,11 +17,13 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 |--------------------------------------------------------------------------
 */
 Route::post('/register', [AuthController::class, 'register']);
- 
-// Rota de Login protegida contra Força Bruta (Máximo 5 tentativas por minuto)
-Route::post('/login', [\App\Http\Controllers\AuthController::class, 'login'])->middleware('throttle:5,1');
-Route::post('/forgot-password', [\App\Http\Controllers\AuthController::class, 'forgotPassword']);
-Route::post('/reset-password', [\App\Http\Controllers\AuthController::class, 'resetPassword']);
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:5,1'); // Proteção Força Bruta
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+
+// Rota pública para a API de pagamentos (Proxypay) avisar o nosso servidor
+Route::post('/webhooks/payment-confirmation', [PaymentController::class, 'webhookConfirmation']);
+
 
 /*
 |--------------------------------------------------------------------------
@@ -41,45 +32,38 @@ Route::post('/reset-password', [\App\Http\Controllers\AuthController::class, 're
 */
 Route::middleware('auth:sanctum')->group(function () {
     
-    // Rota para autenticação do canal de transmissão (Broadcasting)
-    // O RouteServiceProvider já aplica o prefixo 'api' a este ficheiro.
-    Broadcast::routes(['middleware' => ['auth:sanctum']]);
-    // Carrega a lógica de autorização dos canais! (Faltava isto)
+    // Autenticação dos Canais de Tempo Real (WebRTC / Pusher / Reverb)
+    Broadcast::routes(); 
     require base_path('routes/channels.php');
     
+    // Utilizador
     Route::post('/logout', [AuthController::class, 'logout']);
-    
-    // Devolve os dados do utilizador autenticado
     Route::get('/user', function (Request $request) {
         return $request->user();
     });
 
-    // Rota para o Flutter pedir a referência do Multicaixa
+    // Pagamentos
     Route::post('/pay/multicaixa', [PaymentController::class, 'generateReference']);
     
-    // Rotas das Disciplinas (que fizemos antes)
-    Route::apiResource('subjects', App\Http\Controllers\SubjectController::class);
+    // Disciplinas
+    Route::apiResource('subjects', SubjectController::class);
 
-    // Rotas dos Cadernos (Aninhadas na Disciplina)
-    Route::get('/subjects/{subject_id}/notebooks', [App\Http\Controllers\NotebookController::class, 'index']);
-    Route::post('/subjects/{subject_id}/notebooks', [App\Http\Controllers\NotebookController::class, 'store']);
+    // Cadernos (Criar e Listar por Disciplina)
+    Route::get('/subjects/{subject_id}/notebooks', [NotebookController::class, 'index']);
+    Route::post('/subjects/{subject_id}/notebooks', [NotebookController::class, 'store']);
     
-    // Rota para exportar o caderno para PDF
-    Route::get('/notebooks/{notebook_id}/export-pdf', [App\Http\Controllers\NotebookController::class, 'exportPdf']);
+    // Cadernos (Ações diretas usando o ID do Caderno)
+    Route::delete('/notebooks/{notebook}', [NotebookController::class, 'destroy']);
+    Route::get('/notebooks/{notebook}/export-pdf', [NotebookController::class, 'exportPdf']);
 
-    // Rota para partilhar um caderno
-    Route::post('/notebooks/{notebook_id}/share', [App\Http\Controllers\NotebookShareController::class, 'store']);
-    Route::delete('/notebooks/{notebook}/share/{user}', [\App\Http\Controllers\NotebookShareController::class, 'destroy']);
-    // Rotas das Páginas
-    Route::get('/notebooks/{notebook_id}/pages', [App\Http\Controllers\PageController::class, 'index']);
-    Route::post('/notebooks/{notebook_id}/pages', [App\Http\Controllers\PageController::class, 'store']);
+    // Partilha de Cadernos
+    Route::post('/notebooks/{notebook}/share', [NotebookShareController::class, 'store']);
+    Route::delete('/notebooks/{notebook}/share/{user}', [NotebookShareController::class, 'destroy']);
+    
+    // Páginas dos Cadernos
+    Route::get('/notebooks/{notebook_id}/pages', [PageController::class, 'index']);
+    Route::post('/notebooks/{notebook_id}/pages', [PageController::class, 'store']);
 
-    Route::delete('/subjects/{subject_id}/notebooks/{notebook_id}', [App\Http\Controllers\NotebookController::class, 'destroy']);
-    
-    Route::post('/notebooks/{notebook_id}/webrtc/signal', [\App\Http\Controllers\WebRtcController::class, 'signal']);
-    
-    // FUTURO: Aqui vão entrar as rotas de criar Cadernos, Disciplinas, etc!
+    // WebRTC (Tempo Real)
+    Route::post('/notebooks/{notebook_id}/webrtc/signal', [WebRtcController::class, 'signal']);
 });
-
-// Rota pública para a API de pagamentos avisar o nosso servidor
-Route::post('/webhooks/payment-confirmation', [PaymentController::class, 'webhookConfirmation']);

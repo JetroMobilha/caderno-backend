@@ -45,15 +45,17 @@ class NotebookController extends Controller
     }
 
     // Apagar um caderno (Mover para a lixeira)
-    public function destroy(Request $request, $subject_id, $id)
+    public function destroy(\App\Models\Notebook $notebook)
     {
-        // Garante que a disciplina pertence ao utilizador
-        $subject = $request->user()->subjects()->findOrFail($subject_id);
-        
-        // Garante que o caderno pertence a esta disciplina e apaga-o
-        $notebook = $subject->notebooks()->findOrFail($id);
-        $notebook->delete(); // Como temos o SoftDeletes, isto apenas preenche o deleted_at!
+        // 1. Opcional, mas recomendado: Verificar se o caderno pertence ao utilizador logado
+        if ($notebook->subject->user_id !== auth()->id()) {
+            return response()->json(['message' => 'Não autorizado.'], 403);
+        }
 
+        // 2. Apagar o caderno (Soft Delete)
+        $notebook->delete();
+
+        // 3. Devolver a resposta que o teu teste está à espera
         return response()->json(['message' => 'Caderno movido para a lixeira.']);
     }
 
