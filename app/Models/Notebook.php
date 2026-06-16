@@ -33,4 +33,10 @@ class Notebook extends Model
     {
         return $this->belongsToMany(User::class)->withPivot('role')->withTimestamps();
     }
+
+    // Método auxiliar para descobrirmos rapidamente quem é o dono real
+    public function getOwnerIdAttribute()
+    {
+        return $this->subject->user_id;
+    }
 }

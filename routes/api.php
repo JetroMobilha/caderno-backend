@@ -31,7 +31,8 @@ Route::post('/register', [AuthController::class, 'register']);
  
 // Rota de Login protegida contra Força Bruta (Máximo 5 tentativas por minuto)
 Route::post('/login', [\App\Http\Controllers\AuthController::class, 'login'])->middleware('throttle:5,1');
-
+Route::post('/forgot-password', [\App\Http\Controllers\AuthController::class, 'forgotPassword']);
+Route::post('/reset-password', [\App\Http\Controllers\AuthController::class, 'resetPassword']);
 
 /*
 |--------------------------------------------------------------------------

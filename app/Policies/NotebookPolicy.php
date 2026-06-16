@@ -42,17 +42,27 @@ class NotebookPolicy
     /**
      * Determine whether the user can update the model.
      */
+    // Regra 2: Quem pode EDITAR (escrever/desenhar/adicionar páginas)?
     public function update(User $user, Notebook $notebook): bool
     {
-        //
+        if ($user->id === $notebook->owner_id) {
+            return true;
+        }
+
+        // Para editar, tem de estar na lista e a coluna 'role' tem de ser 'editor'
+        $share = $notebook->sharedUsers()->where('user_id', $user->id)->first();
+        
+        return $share !== null && $share->pivot->role === 'editor';
     }
 
     /**
      * Determine whether the user can delete the model.
      */
+    // Regra 3: Quem pode APAGAR o caderno inteiro?
     public function delete(User $user, Notebook $notebook): bool
     {
-        //
+        // Só o dono absoluto pode apagar! Editores não podem apagar o caderno.
+        return $user->id === $notebook->owner_id;
     }
 
     /**
