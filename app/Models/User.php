@@ -24,6 +24,9 @@ class User extends Authenticatable implements MustVerifyEmail
         'phone',
         'password',
         'plan_type',
+        'pro_expires_at',
+        'email_verified_at',
+        'remember_token',
     ];
 
     /**
@@ -44,12 +47,19 @@ class User extends Authenticatable implements MustVerifyEmail
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
+        'pro_expires_at' => 'datetime',
     ];
 
 
     public function payments()
     {
         return $this->hasMany(Payment::class);
+    }
+
+    // 2. Método rápido para saber se o estudante é PRO neste exato momento
+    public function isPro(): bool
+    {
+        return $this->pro_expires_at !== null && $this->pro_expires_at->isFuture();
     }
 
     public function subjects() {

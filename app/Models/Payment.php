@@ -12,12 +12,19 @@ class Payment extends Model
     protected $fillable = [
         'user_id',
         'amount',
-        'payment_method',
         'entity',
         'reference',
         'status',
+        'plan_type',
+        'expires_at',
+        'paid_at',
     ];
 
+    protected $casts = [
+        'expires_at' => 'datetime',
+        'paid_at' => 'datetime',
+        'amount' => 'decimal:2',
+    ];
     // Um pagamento pertence a um utilizador
     public function user()
     {
