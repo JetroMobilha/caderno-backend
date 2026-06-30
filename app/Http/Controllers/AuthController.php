@@ -35,7 +35,7 @@ class AuthController extends Controller
         $token = $user->createToken('auth_token')->plainTextToken;
 
         // Dispara o e-mail de verificação em segundo plano
-        $user->sendEmailVerificationNotification();
+        //$user->sendEmailVerificationNotification();
 
         // 4. Devolver a resposta em JSON para o Flutter
         return response()->json([
