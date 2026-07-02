@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use  Illuminate\Support\Facades\Storage;
 
 class AuthController extends Controller
 {
@@ -157,4 +158,31 @@ class AuthController extends Controller
 
         return response()->json(['message' => 'A tua palavra-passe foi atualizada com sucesso! Já podes fazer login.']);
     }
+
+    public function updateProfile(Request $request) {
+    $user = $request->user();
+    
+    $request->validate([
+        'name' => 'required|string|max:255',
+        'avatar' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
+    ]);
+
+    $user->name = $request->name;
+
+    if ($request->hasFile('avatar')) {
+        // Apaga a foto antiga se existir
+        if ($user->avatar) { Storage::disk('public')->delete($user->avatar); }
+        
+        $path = $request->file('avatar')->store('avatars', 'public');
+        $user->avatar = $path;
+    }
+
+    $user->save();
+
+    return response()->json([
+        'message' => 'Perfil atualizado!',
+        'user' => $user,
+        'avatar_url' => $user->avatar ? asset('storage/' . $user->avatar) : null
+    ]);
+}
 }
