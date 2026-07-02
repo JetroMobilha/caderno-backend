@@ -10,6 +10,7 @@ use App\Http\Controllers\NotebookController;
 use App\Http\Controllers\NotebookShareController;
 use App\Http\Controllers\PageController;
 use App\Http\Controllers\WebRtcController;
+use App\Http\Controllers\Api\SyncController;
 
 /*
 |--------------------------------------------------------------------------
@@ -48,6 +49,8 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // Disciplinas
     Route::apiResource('subjects', SubjectController::class);
+    Route::middleware('auth:sanctum')->post('/sync/push', [SyncController::class, 'push']);
+    Route::middleware('auth:sanctum')->get('/sync/pull', [SyncController::class, 'pull']);
 
     // Cadernos (Criar e Listar por Disciplina)
     Route::get('/subjects/{subject_id}/notebooks', [NotebookController::class, 'index']);
