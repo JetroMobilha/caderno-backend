@@ -1,18 +1,21 @@
 <IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>
-        Options -MultiViews -TrackProcessedConnections
+        Options -MultiViews -Indexes
     </IfModule>
 
     RewriteEngine On
-    
-    # 🚀 INJETA ESTA LINHA: Avisa o Apache que a base desta aplicação é a subpasta
-    RewriteBase /api-caderno/
 
-    # Redireciona barras finais sem quebrar a subpasta
+    # Handle Authorization Header
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Redirect Trailing Slashes If Not A Folder...
     RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteRule ^(.*)/$ /api-caderno/$1 [L,R=301]
+    RewriteCond %{REQUEST_URI} (.+)/$
+    RewriteRule ^ %1 [L,R=301]
+    
 
-    # Envia o tráfego para o index.php do Caderno
+    # Send Requests To Front Controller...
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
