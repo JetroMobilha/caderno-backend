@@ -142,7 +142,7 @@ class SyncController extends Controller
                         $img['image_path'] = asset('storage/' . $storagePath);
                         
                     } catch (\Exception $e) {
-                        \Log::error("Erro ao processar imagem Base64: " . $e->getMessage());
+                        //\Log::error("Erro ao processar imagem Base64: " . $e->getMessage());
                     }
                 }
 
