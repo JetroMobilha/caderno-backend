@@ -49,12 +49,23 @@ class SyncController extends Controller
     {
         $user = $request->user();
         
-        // Puxa todas as disciplinas deste utilizador
-        $subjects = Subject::where('user_id', $user->id)->get();
+        // 🚀 O RADAR: Captura a data do último rastreio que o telemóvel enviou
+        $lastSyncedAt = $request->query('last_synced_at');
+
+        $query = Subject::where('user_id', $user->id);
+
+        if ($lastSyncedAt) {
+            // 🎯 Filtra APENAS o que foi criado ou alterado DEPOIS daquele segundo!
+            $query->where('updated_at', '>', $lastSyncedAt);
+        }
+
+        $subjects = $query->get();
 
         return response()->json([
-            'message' => 'Sincronização Pull efetuada.',
-            'subjects' => $subjects
+            'message' => 'Rastreio concluído.',
+            'subjects' => $subjects,
+            // 🚀 Envia a hora ATUAL do servidor para o telemóvel guardar para o próximo rastreio
+            'server_time' => now()->toIso8601String() 
         ]);
     }
 }
