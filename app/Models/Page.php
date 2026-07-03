@@ -12,19 +12,22 @@ class Page extends Model
     protected $fillable = [
         'notebook_id', 
         'page_number', 
-        'stroke_data',
+        'is_landscape',  
         'header_data',
         'footer_data',
+        'stroke_data',
+        'text_data',     
+        'image_data',    
     ];
-
-    // TRUQUE DO LARAVEL 10: Converte o JSON em Array automaticamente ao ler/gravar
+ 
     protected $casts = [
-        'stroke_data' => 'array',
-        'header_data' => 'array',
-        'footer_data' => 'array',
+        'is_landscape' => 'boolean', 
+        'stroke_data'  => 'array',
+        'text_data'    => 'array',    
+        'image_data'   => 'array',    
+         
     ];
 
-    // Uma página pertence a um caderno
     public function notebook()
     {
         return $this->belongsTo(Notebook::class);

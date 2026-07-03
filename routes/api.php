@@ -63,7 +63,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Partilha de Cadernos
     Route::post('/notebooks/{notebook}/share', [NotebookShareController::class, 'store']);
     Route::delete('/notebooks/{notebook}/share/{user}', [NotebookShareController::class, 'destroy']);
-    
+    Route::post('/sync/notebooks/push', [SyncController::class, 'pushNotebooks']);
+    Route::post('/sync/pages/push', [SyncController::class, 'pushPages']);
+
     // Páginas dos Cadernos
     Route::get('/notebooks/{notebook_id}/pages', [PageController::class, 'index']);
     Route::post('/notebooks/{notebook_id}/pages', [PageController::class, 'store']);
