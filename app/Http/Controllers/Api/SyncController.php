@@ -304,9 +304,9 @@ class SyncController extends Controller
 
             // 5. Devolvemos ao telemóvel o ID oficial E O NÚMERO DA PÁGINA CORRIGIDO!
             $syncedPages[] = [
-                'client_id'   => $pageData['client_id'], // O ID local do SQLite
-                'server_id'   => $page->id,              // O ID da nuvem
-                'page_number' => $page->page_number      // O número real em que ela ficou encadernada!
+                'client_id'   => $pageData['client_id'] ?? $pageData['id'], // Usa o id original do SQLite!
+                'server_id'   => $page->id,
+                'page_number' => $page->page_number
             ];
         }
 
