@@ -17,8 +17,7 @@ class SyncController extends Controller
     // =========================================================================
     // ☁️ FASE 1: RECEBER DISCIPLINAS (COM PROTOCOLO DE FUSÃO ANTI-DUPLICAÇÃO)
     // =========================================================================
-    public function push(Request $request)
-    {
+    public function push(Request $request){
         $user = $request->user();
         $clientSubjects = $request->input('subjects', []);
         $syncedSubjects = [];
@@ -80,8 +79,7 @@ class SyncController extends Controller
         ]);
     }
 
-    public function pull(Request $request)
-    {
+    public function pull(Request $request){
         $user = $request->user();
         $lastSyncedAt = $request->query('last_synced_at');
         $query = Subject::where('user_id', $user->id);
@@ -100,8 +98,7 @@ class SyncController extends Controller
     // =========================================================================
     // ☁️ FASE 2: RECEBER CADERNOS (COM PROTOCOLO DE FUSÃO DE CAPAS)
     // =========================================================================
-    public function pushNotebooks(Request $request)
-    {
+    public function pushNotebooks(Request $request){
         $user = $request->user();
         $clientNotebooks = $request->input('notebooks', []);
         $syncedNotebooks = [];
@@ -173,10 +170,58 @@ class SyncController extends Controller
     }
 
     // =========================================================================
+    // 📥 FASE 2.1: ENVIAR CADERNOS PARA O CLIENTE (PULL)
+    // =========================================================================
+    public function pullNotebooks(Request $request){
+        $user = $request->user();
+        $lastSyncedAt = $request->query('last_synced_at');
+
+        // 🛡️ BLINDAGEM DE SEGURANÇA: Só busca cadernos que pertencem às disciplinas DESTE utilizador!
+        $query = Notebook::whereHas('subject', function ($q) use ($user) {
+            $q->where('user_id', $user->id);
+        });
+
+        // ⏰ DELTA SYNC: Se o telemóvel enviou carimbo de tempo, filtra só as novidades
+        if ($lastSyncedAt) {
+            $query->where('updated_at', '>', $lastSyncedAt);
+        }
+
+        return response()->json([
+            'message' => 'Rastreio de cadernos concluído.',
+            'notebooks' => $query->get(),
+            'server_time' => now()->toIso8601String()
+        ]);
+    }
+
+    // =========================================================================
+    // 📥 FASE 3.1: ENVIAR FOLHAS, DESENHOS E FOTOS PARA O CLIENTE (PULL)
+    // =========================================================================
+    public function pullPages(Request $request){
+        $user = $request->user();
+        $lastSyncedAt = $request->query('last_synced_at');
+
+        // 🛡️ BLINDAGEM DE 3 CAMADAS: Só busca folhas cujos cadernos pertencem às disciplinas DESTE utilizador!
+        $query = Page::whereHas('notebook.subject', function ($q) use ($user) {
+            $q->where('user_id', $user->id);
+        });
+
+        if ($lastSyncedAt) {
+            $query->where('updated_at', '>', $lastSyncedAt);
+        }
+
+        // Nota: Como configurámos os $casts = ['stroke_data' => 'array', ...] no Modelo Page,
+        // o Eloquent converte tudo em JSON automaticamente sem escapamentos estranhos!
+        return response()->json([
+            'message' => 'Rastreio de páginas e desenhos concluído.',
+            'pages' => $query->get(),
+            'server_time' => now()->toIso8601String()
+        ]);
+    }
+
+    // =========================================================================
     // ☁️ FASE 3: RECEBER FOLHAS (COM PROTOCOLO ANTI-COLISÃO DE PAGINAÇÃO)
     // =========================================================================
-    public function pushPages(Request $request)
-    {
+    public function pushPages(Request $request){
         $user = $request->user();
         $clientPages = $request->input('pages', []);
         $syncedPages = [];

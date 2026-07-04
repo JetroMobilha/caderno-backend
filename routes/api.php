@@ -47,12 +47,26 @@ Route::middleware('auth:sanctum')->group(function () {
     // Pagamentos
     Route::post('/pay/multicaixa', [PaymentController::class, 'generateReference']);
     
-    // Disciplinas
+    // Disciplinas (CRUD clássico)
     Route::apiResource('subjects', SubjectController::class);
-    Route::middleware('auth:sanctum')->post('/sync/push', [SyncController::class, 'push']);
-    Route::middleware('auth:sanctum')->get('/sync/pull', [SyncController::class, 'pull']);
 
-    // Cadernos (Criar e Listar por Disciplina)
+    // =========================================================================
+    // 🚀 OFENSIVA DE SINCRONIZAÇÃO OFFLINE-FIRST (PUSH & PULL BLINDADOS)
+    // =========================================================================
+    // 1º Escalão: Disciplinas
+    Route::post('/sync/push', [SyncController::class, 'push']);
+    Route::get('/sync/pull', [SyncController::class, 'pull']);
+
+    // 2º Escalão: Cadernos
+    Route::post('/sync/notebooks/push', [SyncController::class, 'pushNotebooks']);
+    Route::get('/sync/notebooks/pull', [SyncController::class, 'pullNotebooks']); // 👈 ADICIONADO!
+
+    // 3º Escalão: Folhas, Desenhos Vetoriais e Multimédia
+    Route::post('/sync/pages/push', [SyncController::class, 'pushPages']);
+    Route::get('/sync/pages/pull', [SyncController::class, 'pullPages']);         // 👈 ADICIONADO!
+    // =========================================================================
+
+    // Cadernos (Criar e Listar por Disciplina - API Clássica)
     Route::get('/subjects/{subject_id}/notebooks', [NotebookController::class, 'index']);
     Route::post('/subjects/{subject_id}/notebooks', [NotebookController::class, 'store']);
     
@@ -63,10 +77,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Partilha de Cadernos
     Route::post('/notebooks/{notebook}/share', [NotebookShareController::class, 'store']);
     Route::delete('/notebooks/{notebook}/share/{user}', [NotebookShareController::class, 'destroy']);
-    Route::post('/sync/notebooks/push', [SyncController::class, 'pushNotebooks']);
-    Route::post('/sync/pages/push', [SyncController::class, 'pushPages']);
-
-    // Páginas dos Cadernos
+    
+    // Páginas dos Cadernos (API Clássica)
     Route::get('/notebooks/{notebook_id}/pages', [PageController::class, 'index']);
     Route::post('/notebooks/{notebook_id}/pages', [PageController::class, 'store']);
 
