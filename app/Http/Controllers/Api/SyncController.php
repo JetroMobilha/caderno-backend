@@ -8,12 +8,14 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use App\Models\Subject;
 use App\Models\Notebook;
-use App\Models\Page; // Garante que criaste o Modelo Page no Laravel!
+use App\Models\Page;  
+
+use Illuminate\Support\Facades\Log;
 
 class SyncController extends Controller
 {
     // =========================================================================
-    // ☁️ FASE 1: RECEBER DISCIPLINAS (PULL/PUSH) - Já implementado
+    // ☁️ FASE 1: RECEBER DISCIPLINAS (COM PROTOCOLO DE FUSÃO ANTI-DUPLICAÇÃO)
     // =========================================================================
     public function push(Request $request)
     {
@@ -22,26 +24,58 @@ class SyncController extends Controller
         $syncedSubjects = [];
 
         foreach ($clientSubjects as $subjectData) {
-            $subject = Subject::updateOrCreate(
-                [
-                    'id' => $subjectData['server_id'], 
-                    'user_id' => $user->id
-                ],
-                [
-                    'name' => $subjectData['name'],
-                    'color' => $subjectData['color'],
-                    'icon' => $subjectData['icon'],
-                ]
-            );
+            $subject = null;
 
+            // 1. Se o telemóvel já enviou um server_id, é uma atualização normal de um registo existente
+            if (!empty($subjectData['server_id'])) {
+                $subject = Subject::where('user_id', $user->id)
+                    ->where('id', $subjectData['server_id'])
+                    ->first();
+            }
+
+            // 2. 🚀 O RADAR ANTI-COLISÃO: Se é uma criação nova (sem server_id),
+            // procuramos se o aluno JÁ TEM uma disciplina com este mesmo nome (ignorando maiúsculas e espaços)
+            if (!$subject) {
+                $cleanName = trim(strtolower($subjectData['name']));
+                
+                $subject = Subject::where('user_id', $user->id)
+                    ->whereRaw('LOWER(TRIM(name)) = ?', [$cleanName])
+                    ->orderBy('id', 'asc') // Pega a primeira que foi criada (A Principal!)
+                    ->first();
+            }
+
+            // 3. DECISÃO TÁTICA DE FUSÃO:
+            if ($subject) {
+                // Se já existia, MANTEMOS OS DADOS DO ANTIGO COMO PRINCIPAL!
+                // Só atualizamos o nome/cor se o comando veio de um ID que já existia no servidor.
+                if (!empty($subjectData['server_id'])) {
+                    $subject->update([
+                        'name'  => trim($subjectData['name']),
+                        'color' => $subjectData['color'],
+                        'icon'  => $subjectData['icon'],
+                    ]);
+                } else {
+                    Log::info("🧲 [Fusão] Disciplina duplicada evitda! O telemóvel tentou criar '{$subjectData['name']}', mas fundimos com o ID {$subject->id}.");
+                }
+            } else {
+                // 4. Se o nome está livre, criamos uma disciplina 100% nova!
+                $subject = Subject::create([
+                    'user_id' => $user->id,
+                    'name'    => trim($subjectData['name']),
+                    'color'   => $subjectData['color'],
+                    'icon'    => $subjectData['icon'],
+                ]);
+            }
+
+            // 5. Devolvemos o ID oficial. O telemóvel vai assumir este ID e fundir os cadernos!
             $syncedSubjects[] = [
-                'client_id' => $subjectData['id'], 
-                'server_id' => $subject->id,       
+                'client_id' => $subjectData['id'], // ID local do SQLite
+                'server_id' => $subject->id,       // ID oficial (Novo ou Fundido!)
             ];
         }
 
         return response()->json([
-            'message' => 'Disciplinas sincronizadas.',
+            'message' => 'Disciplinas sincronizadas e purificadas contra duplicações.',
             'synced_subjects' => $syncedSubjects
         ]);
     }
@@ -64,7 +98,7 @@ class SyncController extends Controller
     }
 
     // =========================================================================
-    // ☁️ FASE 2: RECEBER CADERNOS (PUSH)
+    // ☁️ FASE 2: RECEBER CADERNOS (COM PROTOCOLO DE FUSÃO DE CAPAS)
     // =========================================================================
     public function pushNotebooks(Request $request)
     {
@@ -73,44 +107,73 @@ class SyncController extends Controller
         $syncedNotebooks = [];
 
         foreach ($clientNotebooks as $notebookData) {
-            // RESOLUÇÃO DE RELACIONAMENTO: O telemóvel envia o subject_id local do SQLite.
-            // Precisamos de descobrir qual é o ID oficial desse assunto no servidor!
+            // 1. Descobrimos qual é a Disciplina Mãe no servidor
             $subject = Subject::where('user_id', $user->id)
-                ->where('id', $notebookData['subject_id']) // Se já enviares o server_id mapeado no Flutter
+                ->where('id', $notebookData['subject_id'])
                 ->first();
 
-            // Fallback tático caso ainda use IDs locais no payload provisório
             $subjectId = $subject ? $subject->id : $notebookData['subject_id'];
+            $notebook = null;
 
-            $notebook = Notebook::updateOrCreate(
-                [
-                    'id' => $notebookData['server_id'],
-                ],
-                [
-                    'subject_id' => $subjectId,
-                    'title' => $notebookData['title'],
-                    'cover_type' => $notebookData['cover_type'] ?? 'color',
-                    'color' => $notebookData['color'],
+            // 2. Se já tem server_id, busca diretamente para atualizar
+            if (!empty($notebookData['server_id'])) {
+                $notebook = Notebook::where('id', $notebookData['server_id'])
+                    ->where('subject_id', $subjectId)
+                    ->first();
+            }
+
+            // 3. 🚀 O RADAR DE CAPAS: Se é novo, procura por cadernos com o MESMO TÍTULO dentro desta disciplina
+            if (!$notebook) {
+                $cleanTitle = trim(strtolower($notebookData['title']));
+
+                $notebook = Notebook::where('subject_id', $subjectId)
+                    ->whereRaw('LOWER(TRIM(title)) = ?', [$cleanTitle])
+                    ->orderBy('id', 'asc') // O mais antigo vence e mantém a capa original!
+                    ->first();
+            }
+
+            // 4. EXECUÇÃO DA FUSÃO OU CRIAÇÃO:
+            if ($notebook) {
+                // Se já existia um caderno com esse nome na disciplina, mantemos a cor e formato do antigo!
+                if (!empty($notebookData['server_id'])) {
+                    $notebook->update([
+                        'title'       => trim($notebookData['title']),
+                        'cover_type'  => $notebookData['cover_type'] ?? 'color',
+                        'color'       => $notebookData['color'],
+                        'cover_image' => $notebookData['cover_image'],
+                        'line_type'   => $notebookData['line_type'],
+                        'paper_size'  => $notebookData['paper_size'] ?? 'A4',
+                    ]);
+                } else {
+                    Log::info("🧲 [Fusão] Caderno duplicado evitado! Fundido '{$notebookData['title']}' no ID {$notebook->id}.");
+                }
+            } else {
+                // Se não existia, encadernamos um novo!
+                $notebook = Notebook::create([
+                    'subject_id'  => $subjectId,
+                    'title'       => trim($notebookData['title']),
+                    'cover_type'  => $notebookData['cover_type'] ?? 'color',
+                    'color'       => $notebookData['color'],
                     'cover_image' => $notebookData['cover_image'],
-                    'line_type' => $notebookData['line_type'],
-                    'paper_size' => $notebookData['paper_size'] ?? 'A4',
-                ]
-            );
+                    'line_type'   => $notebookData['line_type'],
+                    'paper_size'  => $notebookData['paper_size'] ?? 'A4',
+                ]);
+            }
 
             $syncedNotebooks[] = [
-                'client_id' => $notebookData['id'], // ID local do SQLite
-                'server_id' => $notebook->id,       // ID real da Nuvem
+                'client_id' => $notebookData['id'],
+                'server_id' => $notebook->id,
             ];
         }
 
         return response()->json([
-            'message' => 'Cadernos sincronizados.',
+            'message' => 'Cadernos sincronizados e fundidos com sucesso.',
             'synced_notebooks' => $syncedNotebooks
         ]);
     }
 
     // =========================================================================
-    // ☁️ FASE 3: RECEBER FOLHAS E EXTRAIR IMAGENS BASE64 (PUSH)
+    // ☁️ FASE 3: RECEBER FOLHAS (COM PROTOCOLO ANTI-COLISÃO DE PAGINAÇÃO)
     // =========================================================================
     public function pushPages(Request $request)
     {
@@ -119,65 +182,91 @@ class SyncController extends Controller
         $syncedPages = [];
 
         foreach ($clientPages as $pageData) {
-            
+            $notebookId = $pageData['notebook_id'];
+            $targetPageNumber = $pageData['page_number'];
+            $page = null;
+
+            // 1. Se já tem server_id (id), é uma atualização de um desenho existente na nuvem
+            if (!empty($pageData['id'])) {
+                $page = Page::where('id', $pageData['id'])
+                    ->where('notebook_id', $notebookId)
+                    ->first();
+            }
+
+            // 2. 🚀 O RADAR DE PAGINAÇÃO: Se é uma folha NOVA (sem server_id)...
+            if (!$page) {
+                // Verificamos se este caderno já tem alguma folha a ocupar este número exato!
+                $collision = Page::where('notebook_id', $notebookId)
+                    ->where('page_number', $targetPageNumber)
+                    ->exists();
+
+                if ($collision) {
+                    // 🛡️ PROTOCOLO REFORÇO NA RETAGUARDA: Encontramos a última folha do caderno
+                    $maxPage = Page::where('notebook_id', $notebookId)->max('page_number');
+                    
+                    // Se a última era a 3, esta nova passa a ser a 4!
+                    $newPageNumber = ($maxPage ? $maxPage : 0) + 1;
+                    
+                    Log::info("📑 [Paginação] Colisão evitada no Caderno {$notebookId}! A Folha local {$targetPageNumber} foi reposicionada como Folha {$newPageNumber} na nuvem.");
+                    
+                    $targetPageNumber = $newPageNumber;
+                }
+            }
+
+            // 3. Processamento de Imagens Base64 (Mantém a mesma lógica limpa que fizemos ontem)
             $imagesArray = $pageData['image_data'] ?? [];
             $cleanImages = [];
-
-            // 🚀 OPERAÇÃO DESEMPACOTAMENTO: Varre as fotos à procura de Base64
             foreach ($imagesArray as $img) {
                 if (!empty($img['image_base64'])) {
                     try {
-                        // 1. Decodifica o texto Base64 de volta para o ficheiro binário original
                         $decodedImage = base64_decode($img['image_base64']);
-                        
-                        // 2. Gera um nome único militar anti-colisão para a foto
                         $filename = 'img_' . uniqid() . '_' . Str::slug($img['id']) . '.png';
                         $storagePath = 'notebook_images/' . $filename;
-
-                        // 3. Salva fisicamente na pasta storage/app/public/notebook_images/
                         Storage::disk('public')->put($storagePath, $decodedImage);
-
-                        // 4. Substitui o caminho local do telemóvel pelo URL oficial da Nuvem!
-                        // Ex: http://35.205.132.251:8080/storage/notebook_images/img_123.png
                         $img['image_path'] = asset('storage/' . $storagePath);
-                        
                     } catch (\Exception $e) {
-                        //\Log::error("Erro ao processar imagem Base64: " . $e->getMessage());
+                        Log::error("Erro na imagem Base64: " . $e->getMessage());
                     }
                 }
-
-                // 🔥 PURIFICAÇÃO ABSOLUTA: Destrói a chave do Base64 para ela não entrar
-                // na base de dados. O MySQL vai receber apenas o URL leve!
                 unset($img['image_base64']);
                 $cleanImages[] = $img;
             }
 
-            // 5. Salva ou atualiza a folha no cofre relacional
-            // Nota: Garante que os campos stroke_data, text_data e image_data estão configurados como $casts=['json'] no modelo Page!
-            $page = Page::updateOrCreate(
-                [
-                    'id' => $pageData['id'] ?? null, // server_id se houver
-                    'notebook_id' => $pageData['notebook_id'],
-                    'page_number' => $pageData['page_number']
-                ],
-                [
+            // 4. Gravação ou Atualização usando o número da página (possivelmente corrigido!)
+            if ($page) {
+                // Atualização de folha existente
+                $page->update([
                     'is_landscape' => $pageData['is_landscape'] ?? false,
-                    'header_data' => $pageData['header_data'],
-                    'footer_data' => $pageData['footer_data'],
-                    'stroke_data' => $pageData['stroke_data'] ?? [],
-                    'text_data' => $pageData['text_data'] ?? [],
-                    'image_data' => $cleanImages, // Grava o array limpo contendo as URLs públicas
-                ]
-            );
+                    'header_data'  => $pageData['header_data'],
+                    'footer_data'  => $pageData['footer_data'],
+                    'stroke_data'  => $pageData['stroke_data'] ?? [],
+                    'text_data'    => $pageData['text_data'] ?? [],
+                    'image_data'   => $cleanImages,
+                ]);
+            } else {
+                // Criação da folha nova na posição livre ou anexada no fim
+                $page = Page::create([
+                    'notebook_id'  => $notebookId,
+                    'page_number'  => $targetPageNumber, // <--- O SEGREDO ESTÁ AQUI!
+                    'is_landscape' => $pageData['is_landscape'] ?? false,
+                    'header_data'  => $pageData['header_data'],
+                    'footer_data'  => $pageData['footer_data'],
+                    'stroke_data'  => $pageData['stroke_data'] ?? [],
+                    'text_data'    => $pageData['text_data'] ?? [],
+                    'image_data'   => $cleanImages,
+                ]);
+            }
 
+            // 5. Devolvemos ao telemóvel o ID oficial E O NÚMERO DA PÁGINA CORRIGIDO!
             $syncedPages[] = [
-                'client_id' => $pageData['client_id'], // ID local do SQLite
-                'server_id' => $page->id,              // ID oficial gerado pelo Laravel
+                'client_id'   => $pageData['client_id'], // O ID local do SQLite
+                'server_id'   => $page->id,              // O ID da nuvem
+                'page_number' => $page->page_number      // O número real em que ela ficou encadernada!
             ];
         }
 
         return response()->json([
-            'message' => 'Folhas e multimédia sincronizados com sucesso.',
+            'message' => 'Folhas sincronizadas e paginação re-ordenada sem colisões.',
             'synced_pages' => $syncedPages
         ]);
     }
