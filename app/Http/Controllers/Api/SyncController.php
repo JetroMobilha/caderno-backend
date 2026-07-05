@@ -254,7 +254,7 @@ class SyncController extends Controller
                     $targetPageNumber = $newPageNumber;
                 }
             }
-            }
+            
 
             // 3. Processamento de Imagens Base64 (Mantém a mesma lógica limpa que fizemos ontem)
             $imagesArray = $pageData['image_data'] ?? [];
