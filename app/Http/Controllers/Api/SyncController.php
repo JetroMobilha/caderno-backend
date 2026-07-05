@@ -232,8 +232,8 @@ class SyncController extends Controller
             $page = null;
 
             // 1. Se já tem server_id (id), é uma atualização de um desenho existente na nuvem
-            if (!empty($pageData['id'])) {
-                $page = Page::where('id', $pageData['id'])
+           if (!empty($pageData['server_id'])) {
+                $page = Page::where('id', $pageData['server_id']) // 👈 Procura pelo ID Oficial!
                     ->where('notebook_id', $notebookId)
                     ->first();
             }
@@ -246,16 +246,14 @@ class SyncController extends Controller
                     ->exists();
 
                 if ($collision) {
-                    // 🛡️ PROTOCOLO REFORÇO NA RETAGUARDA: Encontramos a última folha do caderno
                     $maxPage = Page::where('notebook_id', $notebookId)->max('page_number');
-                    
-                    // Se a última era a 3, esta nova passa a ser a 4!
                     $newPageNumber = ($maxPage ? $maxPage : 0) + 1;
                     
-                    Log::info("📑 [Paginação] Colisão evitada no Caderno {$notebookId}! A Folha local {$targetPageNumber} foi reposicionada como Folha {$newPageNumber} na nuvem.");
+                    Log::info("📑 [Paginação] Colisão evitada no Caderno {$notebookId}! Folha {$targetPageNumber} reposicionada como {$newPageNumber}.");
                     
                     $targetPageNumber = $newPageNumber;
                 }
+            }
             }
 
             // 3. Processamento de Imagens Base64 (Mantém a mesma lógica limpa que fizemos ontem)
