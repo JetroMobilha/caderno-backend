@@ -4,15 +4,11 @@ use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
-| Web Routes
+| Web Routes (O Escudo do Flutter)
 |--------------------------------------------------------------------------
-|
-| Here is where you can register web routes for your application. These
-| routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "web" middleware group. Make something great!
-|
 */
 
-Route::get('/', function () {
-    return view('welcome');
+// Rota de salvaguarda: Qualquer link que não seja API, carrega a App Flutter!
+Route::fallback(function () {
+    return file_get_contents(public_path('index.html'));
 });
