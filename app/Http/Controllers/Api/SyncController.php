@@ -172,45 +172,61 @@ class SyncController extends Controller
     // =========================================================================
     // 📥 FASE 2.1: ENVIAR CADERNOS PARA O CLIENTE (PULL)
     // =========================================================================
-    public function pullNotebooks(Request $request){
-        $user = $request->user();
-        $lastSyncedAt = $request->query('last_synced_at');
+    public function pullNotebooks(Request $request)
+{
+    $user = $request->user();
+    $lastSyncedAt = $request->query('last_synced_at');
 
-        // 🛡️ BLINDAGEM DE SEGURANÇA: Só busca cadernos que pertencem às disciplinas DESTE utilizador!
-        $query = Notebook::whereHas('subject', function ($q) use ($user) {
-            $q->where('user_id', $user->id);
+    // 🎯 O SEGREDO: Buscar cadernos onde o utilizador é o DONO OU onde o caderno foi PARTILHADO com ele
+    $query = Notebook::where(function ($q) use ($user) {
+        // 1. Cadernos criados pelo próprio utilizador (via Disciplina)
+        $q->whereHas('subject', function ($subQuery) use ($user) {
+            $subQuery->where('user_id', $user->id);
+        })
+        // 2. OU cadernos partilhados com ele (via tabela pivô sharedUsers)
+        ->orWhereHas('sharedUsers', function ($subQuery) use ($user) {
+            $subQuery->where('user_id', $user->id);
         });
+    });
 
-        // ⏰ DELTA SYNC: Se o telemóvel enviou carimbo de tempo, filtra só as novidades
-        if ($lastSyncedAt) {
-            $query->where('updated_at', '>', $lastSyncedAt);
-        }
-
-        return response()->json([
-            'message' => 'Rastreio de cadernos concluído.',
-            'notebooks' => $query->get(),
-            'server_time' => now()->toIso8601String()
-        ]);
+    // ⏰ DELTA SYNC: Se o Flutter enviou um carimbo de tempo, filtra apenas as novidades
+    if ($lastSyncedAt) {
+        $query->where('updated_at', '>', $lastSyncedAt);
     }
+
+    return response()->json([
+        'message' => 'Rastreio de cadernos concluído na estante universal! 📚',
+        'notebooks' => $query->get(),
+        'server_time' => now()->toIso8601String()
+    ]);
+}
 
     // =========================================================================
     // 📥 FASE 3.1: ENVIAR FOLHAS, DESENHOS E FOTOS PARA O CLIENTE (PULL)
     // =========================================================================
-    public function pullPages(Request $request){
+   public function pullPages(Request $request)
+    {
         $user = $request->user();
         $lastSyncedAt = $request->query('last_synced_at');
 
-        // 🛡️ BLINDAGEM DE 3 CAMADAS: Só busca folhas cujos cadernos pertencem às disciplinas DESTE utilizador!
-        $query = Page::whereHas('notebook.subject', function ($q) use ($user) {
-            $q->where('user_id', $user->id);
+        // 🛡️ BLINDAGEM MULTI-CAMADAS: Puxar folhas de cadernos próprios OU partilhados
+        $query = Page::whereHas('notebook', function ($q) use ($user) {
+            $q->where(function ($innerQuery) use ($user) {
+                // Folhas de cadernos próprios
+                $innerQuery->whereHas('subject', function ($subQuery) use ($user) {
+                    $subQuery->where('user_id', $user->id);
+                })
+                // OU folhas de cadernos partilhados
+                ->orWhereHas('sharedUsers', function ($subQuery) use ($user) {
+                    $subQuery->where('user_id', $user->id);
+                });
+            });
         });
 
         if ($lastSyncedAt) {
             $query->where('updated_at', '>', $lastSyncedAt);
         }
 
-        // Nota: Como configurámos os $casts = ['stroke_data' => 'array', ...] no Modelo Page,
-        // o Eloquent converte tudo em JSON automaticamente sem escapamentos estranhos!
         return response()->json([
             'message' => 'Rastreio de páginas e desenhos concluído.',
             'pages' => $query->get(),
