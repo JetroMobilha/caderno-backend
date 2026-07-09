@@ -82,15 +82,35 @@ class SyncController extends Controller
     public function pull(Request $request){
         $user = $request->user();
         $lastSyncedAt = $request->query('last_synced_at');
+        
+        // 1. Buscar disciplinas normais do utilizador
         $query = Subject::where('user_id', $user->id);
 
         if ($lastSyncedAt) {
             $query->where('updated_at', '>', $lastSyncedAt);
         }
 
+        $subjects = $query->get()->toArray();
+
+        // 2. Verificar se há cadernos partilhados para injetar a disciplina virtual no Pull
+        $sharedCount = $user->sharedNotebooks()->count();
+        if ($sharedCount > 0) {
+            // Injetamos a disciplina virtual para o SQLite local criá-la antes dos cadernos
+            $subjects[] = [
+                'id' => 999999,
+                'user_id' => $user->id,
+                'name' => '📚 Partilhados Comigo',
+                'color' => '#0F4C5C',
+                'icon' => 'people',
+                'created_at' => now()->toIso8601String(),
+                'updated_at' => now()->toIso8601String(),
+                'deleted_at' => null
+            ];
+        }
+
         return response()->json([
             'message' => 'Rastreio concluído.',
-            'subjects' => $query->get(),
+            'subjects' => $subjects,
             'server_time' => now()->toIso8601String() 
         ]);
     }
@@ -172,34 +192,38 @@ class SyncController extends Controller
     // =========================================================================
     // 📥 FASE 2.1: ENVIAR CADERNOS PARA O CLIENTE (PULL)
     // =========================================================================
-    public function pullNotebooks(Request $request)
-{
-    $user = $request->user();
-    $lastSyncedAt = $request->query('last_synced_at');
+    public function pullNotebooks(Request $request) {
+        $user = $request->user();
+        $lastSyncedAt = $request->query('last_synced_at');
 
-    // 🎯 O SEGREDO: Buscar cadernos onde o utilizador é o DONO OU onde o caderno foi PARTILHADO com ele
-    $query = Notebook::where(function ($q) use ($user) {
-        // 1. Cadernos criados pelo próprio utilizador (via Disciplina)
-        $q->whereHas('subject', function ($subQuery) use ($user) {
-            $subQuery->where('user_id', $user->id);
-        })
-        // 2. OU cadernos partilhados com ele (via tabela pivô sharedUsers)
-        ->orWhereHas('sharedUsers', function ($subQuery) use ($user) {
-            $subQuery->where('user_id', $user->id);
+        // 1. Buscar os cadernos criados pelo próprio utilizador
+        $ownNotebooks = Notebook::whereHas('subject', function ($query) use ($user) {
+            $query->where('user_id', $user->id);
+        })->when($lastSyncedAt, function($q) use ($lastSyncedAt) {
+            return $q->where('updated_at', '>', $lastSyncedAt);
+        })->get();
+
+        // 2. Buscar os cadernos que foram partilhados com ele
+        $sharedNotebooks = Notebook::whereHas('sharedUsers', function ($query) use ($user) {
+            $query->where('user_id', $user->id);
+        })->when($lastSyncedAt, function($q) use ($lastSyncedAt) {
+            return $q->where('updated_at', '>', $lastSyncedAt);
+        })->get()->map(function($notebook) {
+            // 🚀 O TRADUTOR: Como este caderno pertence a outra disciplina na nuvem,
+            // mascaramos o subject_id como 999999 para o SQLite do Aluno B aceitar!
+            $notebook->subject_id = 999999; 
+            return $notebook;
         });
-    });
 
-    // ⏰ DELTA SYNC: Se o Flutter enviou um carimbo de tempo, filtra apenas as novidades
-    if ($lastSyncedAt) {
-        $query->where('updated_at', '>', $lastSyncedAt);
+        // 3. Unificar as duas coleções numa estante universal única
+        $mergedNotebooks = $ownNotebooks->concat($sharedNotebooks);
+
+        return response()->json([
+            'message' => 'Rastreio de cadernos concluído na estante universal! 📚',
+            'notebooks' => $mergedNotebooks,
+            'server_time' => now()->toIso8601String()
+        ]);
     }
-
-    return response()->json([
-        'message' => 'Rastreio de cadernos concluído na estante universal! 📚',
-        'notebooks' => $query->get(),
-        'server_time' => now()->toIso8601String()
-    ]);
-}
 
     // =========================================================================
     // 📥 FASE 3.1: ENVIAR FOLHAS, DESENHOS E FOTOS PARA O CLIENTE (PULL)

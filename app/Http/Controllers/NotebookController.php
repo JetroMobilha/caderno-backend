@@ -10,18 +10,24 @@ class NotebookController extends Controller
 {
     // Listar todos os cadernos de uma disciplina específica
     public function index(Request $request, $subject_id)
-    {
-        $user = $request->user();
+{
+    $user = $request->user();
 
-        // 🎯 SE FOR A DISCIPLINA VIRTUAL DE PARTILHAS:
-        if ($subject_id == 999999) {
-            return response()->json($user->sharedNotebooks);
-        }
+    // 🎯 SE FOR A DISCIPLINA VIRTUAL DE PARTILHAS:
+    if ($subject_id == 999999) {
+        // Pega os cadernos partilhados e injeta dinamicamente o ID 999999
+        $sharedNotebooks = $user->sharedNotebooks->map(function($notebook) {
+            $notebook->subject_id = 999999; // 🚀 Força o pai a ser a disciplina de partilhas!
+            return $notebook;
+        });
 
-        // Fluxo normal para disciplinas criadas pelo utilizador
-        $subject = $user->subjects()->findOrFail($subject_id);
-        return response()->json($subject->notebooks);
+        return response()->json($sharedNotebooks);
     }
+
+    // Fluxo normal para disciplinas criadas pelo utilizador
+    $subject = $user->subjects()->findOrFail($subject_id);
+    return response()->json($subject->notebooks);
+}
 
     // Criar um caderno dentro de uma disciplina
     public function store(Request $request, $subject_id)
