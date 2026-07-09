@@ -2,38 +2,40 @@
 
 use Illuminate\Support\Facades\Broadcast;
 use App\Models\Notebook;
+
 /*
 |--------------------------------------------------------------------------
 | Broadcast Channels
 |--------------------------------------------------------------------------
-|
-| Here you may register all of the event broadcasting channels that your
-| application supports. The given channel authorization callbacks are
-| used to check if an authenticated user can listen to the channel.
-|
 */
 
 Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
     return (int) $user->id === (int) $id;
 });
 
- 
-Broadcast::channel('notebook.{notebookId}', function ($user, $notebookId) {
+// 🟢 CANAL DE PRESENÇA UNIVERSAL (Usado pelo teu RealtimeService no Flutter)
+Broadcast::channel('presence-notebook.{notebookId}', function ($user, $notebookId) {
+    // 1. Encontrar o caderno com a disciplina mãe carregada
     $notebook = Notebook::with('subject')->find($notebookId);
 
     if (!$notebook) {
         return false;
     }
 
-    // 1. O utilizador é o Dono?
+    // 2. Segurança: O utilizador é o Dono da Disciplina?
     $isOwner = $notebook->subject && $notebook->subject->user_id === $user->id;
     
-    // 2. O utilizador é um Colaborador convidado?
+    // 3. Segurança: O utilizador é um Colaborador convidado na tabela pivô?
     $isCollaborator = $user->sharedNotebooks()->where('notebooks.id', $notebook->id)->exists();
 
+    // 🎯 Se passar num dos testes, autoriza com dados completos para a sala virtual!
     if ($isOwner || $isCollaborator) {
-        // Num Presence Channel, retornar um array autoriza a entrada e partilha estes dados com a sala
-        return ['id' => $user->id, 'name' => $user->name, 'avatar' => $user->avatar];
+        return [
+            'id' => $user->id, 
+            'name' => $user->name,
+            'email' => $user->email,
+            'role' => $isOwner ? 'owner' : 'editor'
+        ];
     }
 
     return false;
