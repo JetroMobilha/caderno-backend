@@ -11,9 +11,15 @@ class NotebookController extends Controller
     // Listar todos os cadernos de uma disciplina específica
     public function index(Request $request, $subject_id)
     {
-        // FindOrFail garante que a disciplina existe E que pertence a quem fez login
-        $subject = $request->user()->subjects()->findOrFail($subject_id);
-        
+        $user = $request->user();
+
+        // 🎯 SE FOR A DISCIPLINA VIRTUAL DE PARTILHAS:
+        if ($subject_id == 999999) {
+            return response()->json($user->sharedNotebooks);
+        }
+
+        // Fluxo normal para disciplinas criadas pelo utilizador
+        $subject = $user->subjects()->findOrFail($subject_id);
         return response()->json($subject->notebooks);
     }
 

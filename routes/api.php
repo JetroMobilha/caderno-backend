@@ -44,6 +44,16 @@ Route::middleware('auth:sanctum')->group(function () {
         return $request->user();
     });
 
+    // No seu routes/api.php
+    Route::get('/notebooks/shared/unread-count', function (Request $request) {
+        // Conta quantos cadernos estão partilhados com ele
+        $count = $request->user()->sharedNotebooks()->count();
+        
+        return response()->json([
+            'unread_shares' => $count
+        ]);
+    });
+
     // Pagamentos
     Route::post('/pay/multicaixa', [PaymentController::class, 'generateReference']);
     
