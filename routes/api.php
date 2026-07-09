@@ -35,6 +35,8 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // 🎯 FIX: Força o registro das rotas de transmissão com os atributos corretos da API
     Broadcast::routes(['middleware' => ['auth:sanctum']]);
+    // O teu arquivo de canais
+    require base_path('routes/channels.php');
     
     // Utilizador
     Route::post('/logout', [AuthController::class, 'logout']);
