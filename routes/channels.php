@@ -39,4 +39,4 @@ Broadcast::channel('presence-notebook.{notebookId}', function ($user, $notebookI
     }
 
     return false;
-});
+}, ['middleware' => ['auth:sanctum']]);
