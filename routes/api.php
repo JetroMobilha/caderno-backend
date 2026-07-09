@@ -33,9 +33,8 @@ Route::post('/webhooks/payment-confirmation', [PaymentController::class, 'webhoo
 */
 Route::middleware('auth:sanctum')->group(function () {
     
-    // Autenticação dos Canais de Tempo Real (WebRTC / Pusher / Reverb)
-    Broadcast::routes(); 
-    require base_path('routes/channels.php');
+    // 🎯 FIX: Força o registro das rotas de transmissão com os atributos corretos da API
+    Broadcast::routes(['middleware' => ['auth:sanctum']]);
     
     // Utilizador
     Route::post('/logout', [AuthController::class, 'logout']);
