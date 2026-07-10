@@ -33,9 +33,7 @@ Route::post('/webhooks/payment-confirmation', [PaymentController::class, 'webhoo
 */
 Route::middleware('auth:sanctum')->group(function () {
     
-    Route::middleware('auth:sanctum')->group(function () {
-    
-    // 🎯 ROTA DE AUTENTICAÇÃO BLINDADA (Substitui o Broadcast::routes automático)
+   // 🎯 ROTA DE AUTENTICAÇÃO BLINDADA (Substitui o Broadcast::routes automático)
     Route::post('/broadcasting/auth', function (\Illuminate\Http\Request $request) {
         try {
             // Força o Laravel a gerar a assinatura de segurança para o Reverb
@@ -55,11 +53,8 @@ Route::middleware('auth:sanctum')->group(function () {
             return response()->json(['message' => $e->getMessage()], 500);
         }
     });
-
-    // Mantém a inclusão do teu ficheiro de canais logo abaixo!
+    // O teu arquivo de canais
     require base_path('routes/channels.php');
-    
-    // ... as tuas outras rotas (subjects, sync, etc.) continuam aqui em baixo
     
     // Utilizador
     Route::post('/logout', [AuthController::class, 'logout']);
