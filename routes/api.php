@@ -33,10 +33,33 @@ Route::post('/webhooks/payment-confirmation', [PaymentController::class, 'webhoo
 */
 Route::middleware('auth:sanctum')->group(function () {
     
-    // 🎯 FIX: Força o registro das rotas de transmissão com os atributos corretos da API
-    Broadcast::routes(['middleware' => ['auth:sanctum']]);
-    // O teu arquivo de canais
+    Route::middleware('auth:sanctum')->group(function () {
+    
+    // 🎯 ROTA DE AUTENTICAÇÃO BLINDADA (Substitui o Broadcast::routes automático)
+    Route::post('/broadcasting/auth', function (\Illuminate\Http\Request $request) {
+        try {
+            // Força o Laravel a gerar a assinatura de segurança para o Reverb
+            $response = Broadcast::auth($request);
+            
+            // Se o motor do Laravel devolver uma resposta vazia, avisamos o Flutter!
+            if (empty($response->getContent())) {
+                return response()->json([
+                    'message' => 'O motor de transmissão não gerou o bilhete. Verifica o BROADCAST_CONNECTION no teu .env!'
+                ], 500);
+            }
+            
+            return $response;
+            
+        } catch (\Exception $e) {
+            // Se houver qualquer erro de código no teu channels.php, o Flutter vai mostrar!
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+    });
+
+    // Mantém a inclusão do teu ficheiro de canais logo abaixo!
     require base_path('routes/channels.php');
+    
+    // ... as tuas outras rotas (subjects, sync, etc.) continuam aqui em baixo
     
     // Utilizador
     Route::post('/logout', [AuthController::class, 'logout']);
