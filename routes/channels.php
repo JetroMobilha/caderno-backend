@@ -14,7 +14,7 @@ Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
 });
 
 // 🟢 CANAL DE PRESENÇA UNIVERSAL (Usado pelo teu RealtimeService no Flutter)
-Broadcast::channel('presence-notebook.{notebookId}', function ($user, $notebookId) {
+Broadcast::channel('notebook.{notebookId}', function ($user, $notebookId) {
     // 1. Encontrar o caderno com a disciplina mãe carregada
     $notebook = Notebook::with('subject')->find($notebookId);
 
