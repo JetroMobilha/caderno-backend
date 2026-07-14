@@ -17,22 +17,51 @@ class SyncController extends Controller
     // =========================================================================
     // ☁️ FASE 1: RECEBER DISCIPLINAS (COM PROTOCOLO DE FUSÃO ANTI-DUPLICAÇÃO)
     // =========================================================================
-    public function push(Request $request){
+    public function push(Request $request) 
+    {
         $user = $request->user();
         $clientSubjects = $request->input('subjects', []);
         $syncedSubjects = [];
 
         foreach ($clientSubjects as $subjectData) {
+            
+            // =====================================================================
+            // 🚀 1. INTERCEÇÃO DE ELIMINAÇÃO (Sinal do Telemóvel)
+            // =====================================================================
+            if (!empty($subjectData['is_deleted']) && $subjectData['is_deleted'] == 1) {
+                
+                // Só faz sentido apagar no servidor se a matéria já tiver um ID na nuvem
+                if (!empty($subjectData['server_id'])) {
+                    $subject = Subject::where('user_id', $user->id)
+                        ->where('id', $subjectData['server_id'])
+                        ->first();
+
+                    if ($subject) {
+                        $subject->delete(); // 🗑️ Executa o Soft Delete no Laravel (escreve em deleted_at)
+                        Log::info("🗑️ [Sync Push] Disciplina '{$subject->name}' (ID Central: {$subject->id}) eliminada no servidor a pedido do telemóvel.");
+                    }
+                }
+
+                // Devolvemos a confirmação. O telemóvel vai ler isto, ver que correu bem 
+                // e mudar o 'synced_with_cloud' para 1 no SQLite local.
+                $syncedSubjects[] = [
+                    'client_id' => $subjectData['id'],
+                    'server_id' => $subjectData['server_id'] ?? null,
+                ];
+                
+                continue; // Avança imediatamente para a próxima disciplina do array, saltando os passos abaixo!
+            }
+
             $subject = null;
 
-            // 1. Se o telemóvel já enviou um server_id, é uma atualização normal de um registo existente
+            // 2. Se o telemóvel já enviou um server_id, é uma atualização normal de um registo existente
             if (!empty($subjectData['server_id'])) {
                 $subject = Subject::where('user_id', $user->id)
                     ->where('id', $subjectData['server_id'])
                     ->first();
             }
 
-            // 2. 🚀 O RADAR ANTI-COLISÃO: Se é uma criação nova (sem server_id),
+            // 3. O RADAR ANTI-COLISÃO: Se é uma criação nova (sem server_id),
             // procuramos se o aluno JÁ TEM uma disciplina com este mesmo nome (ignorando maiúsculas e espaços)
             if (!$subject) {
                 $cleanName = trim(strtolower($subjectData['name']));
@@ -43,7 +72,7 @@ class SyncController extends Controller
                     ->first();
             }
 
-            // 3. DECISÃO TÁTICA DE FUSÃO:
+            // 4. DECISÃO TÁTICA DE FUSÃO:
             if ($subject) {
                 // Se já existia, MANTEMOS OS DADOS DO ANTIGO COMO PRINCIPAL!
                 // Só atualizamos o nome/cor se o comando veio de um ID que já existia no servidor.
@@ -54,10 +83,10 @@ class SyncController extends Controller
                         'icon'  => $subjectData['icon'],
                     ]);
                 } else {
-                    Log::info("🧲 [Fusão] Disciplina duplicada evitda! O telemóvel tentou criar '{$subjectData['name']}', mas fundimos com o ID {$subject->id}.");
+                    Log::info("🧲 [Fusão] Disciplina duplicada evitada! O telemóvel tentou criar '{$subjectData['name']}', mas fundimos com o ID {$subject->id}.");
                 }
             } else {
-                // 4. Se o nome está livre, criamos uma disciplina 100% nova!
+                // 5. Se o nome está livre, criamos uma disciplina 100% nova!
                 $subject = Subject::create([
                     'user_id' => $user->id,
                     'name'    => trim($subjectData['name']),
@@ -66,7 +95,7 @@ class SyncController extends Controller
                 ]);
             }
 
-            // 5. Devolvemos o ID oficial. O telemóvel vai assumir este ID e fundir os cadernos!
+            // 6. Devolvemos o ID oficial. O telemóvel vai assumir este ID e fundir os cadernos!
             $syncedSubjects[] = [
                 'client_id' => $subjectData['id'], // ID local do SQLite
                 'server_id' => $subject->id,       // ID oficial (Novo ou Fundido!)
@@ -74,7 +103,7 @@ class SyncController extends Controller
         }
 
         return response()->json([
-            'message' => 'Disciplinas sincronizadas e purificadas contra duplicações.',
+            'message' => 'Disciplinas sincronizadas, purificadas e processadas com sucesso.',
             'synced_subjects' => $syncedSubjects
         ]);
     }
