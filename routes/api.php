@@ -60,7 +60,9 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // Disciplinas (CRUD clássico)
     Route::apiResource('subjects', SubjectController::class);
-
+    // Rota para apagar (Soft Delete) a disciplina
+    Route::delete('/subjects/{id}', [\App\Http\Controllers\SubjectController::class, 'destroy']);
+    
     // =========================================================================
     // 🚀 OFENSIVA DE SINCRONIZAÇÃO OFFLINE-FIRST (PUSH & PULL BLINDADOS)
     // =========================================================================
