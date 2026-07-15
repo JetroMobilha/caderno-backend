@@ -6,16 +6,16 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use App\Models\Subject;
 use App\Models\Notebook;
 use App\Models\Page;  
 
-use Illuminate\Support\Facades\Log;
-
 class SyncController extends Controller
 {
     // =========================================================================
-    // ☁️ FASE 1: RECEBER DISCIPLINAS (COM PROTOCOLO DE FUSÃO ANTI-DUPLICAÇÃO)
+    // 📚 1. SINCRONIZAÇÃO DE DISCIPLINAS
     // =========================================================================
     public function push(Request $request) 
     {
@@ -24,69 +24,34 @@ class SyncController extends Controller
         $syncedSubjects = [];
 
         foreach ($clientSubjects as $subjectData) {
-            
-            // =====================================================================
-            // 🚀 1. INTERCEÇÃO DE ELIMINAÇÃO (Sinal do Telemóvel)
-            // =====================================================================
             if (!empty($subjectData['is_deleted']) && $subjectData['is_deleted'] == 1) {
-                
-                // Só faz sentido apagar no servidor se a matéria já tiver um ID na nuvem
                 if (!empty($subjectData['server_id'])) {
-                    $subject = Subject::where('user_id', $user->id)
-                        ->where('id', $subjectData['server_id'])
-                        ->first();
-
-                    if ($subject) {
-                        $subject->delete(); // 🗑️ Executa o Soft Delete no Laravel (escreve em deleted_at)
-                        Log::info("🗑️ [Sync Push] Disciplina '{$subject->name}' (ID Central: {$subject->id}) eliminada no servidor a pedido do telemóvel.");
-                    }
+                    $subject = Subject::where('user_id', $user->id)->where('id', $subjectData['server_id'])->first();
+                    if ($subject) { $subject->delete(); }
                 }
-
-                // Devolvemos a confirmação. O telemóvel vai ler isto, ver que correu bem 
-                // e mudar o 'synced_with_cloud' para 1 no SQLite local.
-                $syncedSubjects[] = [
-                    'client_id' => $subjectData['id'],
-                    'server_id' => $subjectData['server_id'] ?? null,
-                ];
-                
-                continue; // Avança imediatamente para a próxima disciplina do array, saltando os passos abaixo!
+                $syncedSubjects[] = ['client_id' => $subjectData['id'], 'server_id' => $subjectData['server_id'] ?? null];
+                continue;
             }
 
             $subject = null;
-
-            // 2. Se o telemóvel já enviou um server_id, é uma atualização normal de um registo existente
             if (!empty($subjectData['server_id'])) {
-                $subject = Subject::where('user_id', $user->id)
-                    ->where('id', $subjectData['server_id'])
-                    ->first();
+                $subject = Subject::where('user_id', $user->id)->where('id', $subjectData['server_id'])->first();
             }
 
-            // 3. O RADAR ANTI-COLISÃO: Se é uma criação nova (sem server_id),
-            // procuramos se o aluno JÁ TEM uma disciplina com este mesmo nome (ignorando maiúsculas e espaços)
             if (!$subject) {
                 $cleanName = trim(strtolower($subjectData['name']));
-                
-                $subject = Subject::where('user_id', $user->id)
-                    ->whereRaw('LOWER(TRIM(name)) = ?', [$cleanName])
-                    ->orderBy('id', 'asc') // Pega a primeira que foi criada (A Principal!)
-                    ->first();
+                $subject = Subject::where('user_id', $user->id)->whereRaw('LOWER(TRIM(name)) = ?', [$cleanName])->first();
             }
 
-            // 4. DECISÃO TÁTICA DE FUSÃO:
             if ($subject) {
-                // Se já existia, MANTEMOS OS DADOS DO ANTIGO COMO PRINCIPAL!
-                // Só atualizamos o nome/cor se o comando veio de um ID que já existia no servidor.
                 if (!empty($subjectData['server_id'])) {
                     $subject->update([
                         'name'  => trim($subjectData['name']),
                         'color' => $subjectData['color'],
                         'icon'  => $subjectData['icon'],
                     ]);
-                } else {
-                    Log::info("🧲 [Fusão] Disciplina duplicada evitada! O telemóvel tentou criar '{$subjectData['name']}', mas fundimos com o ID {$subject->id}.");
                 }
             } else {
-                // 5. Se o nome está livre, criamos uma disciplina 100% nova!
                 $subject = Subject::create([
                     'user_id' => $user->id,
                     'name'    => trim($subjectData['name']),
@@ -95,106 +60,86 @@ class SyncController extends Controller
                 ]);
             }
 
-            // 6. Devolvemos o ID oficial. O telemóvel vai assumir este ID e fundir os cadernos!
-            $syncedSubjects[] = [
-                'client_id' => $subjectData['id'], // ID local do SQLite
-                'server_id' => $subject->id,       // ID oficial (Novo ou Fundido!)
-            ];
+            $syncedSubjects[] = ['client_id' => $subjectData['id'], 'server_id' => $subject->id];
         }
 
-        return response()->json([
-            'message' => 'Disciplinas sincronizadas, purificadas e processadas com sucesso.',
-            'synced_subjects' => $syncedSubjects
-        ]);
+        return response()->json(['message' => 'Disciplinas processadas.', 'synced_subjects' => $syncedSubjects]);
     }
 
-    public function pull(Request $request){
+    public function pull(Request $request)
+    {
         $user = $request->user();
         $lastSyncedAt = $request->query('last_synced_at');
         
-        // 1. Buscar disciplinas normais do utilizador
         $query = Subject::where('user_id', $user->id);
-
-        if ($lastSyncedAt) {
-            $query->where('updated_at', '>', $lastSyncedAt);
-        }
-
-        $subjects = $query->get()->toArray();
-
-        // 2. Verificar se há cadernos partilhados para injetar a disciplina virtual no Pull
-        $sharedCount = $user->sharedNotebooks()->count();
-        if ($sharedCount > 0) {
-            // Injetamos a disciplina virtual para o SQLite local criá-la antes dos cadernos
-            $subjects[] = [
-                'id' => 999999,
-                'user_id' => $user->id,
-                'name' => '📚 Partilhados Comigo',
-                'color' => '#0F4C5C',
-                'icon' => 'people',
-                'created_at' => now()->toIso8601String(),
-                'updated_at' => now()->toIso8601String(),
-                'deleted_at' => null
-            ];
-        }
+        if ($lastSyncedAt) { $query->where('updated_at', '>', $lastSyncedAt); }
 
         return response()->json([
-            'message' => 'Rastreio concluído.',
-            'subjects' => $subjects,
+            'message' => 'Rastreio de disciplinas concluído.',
+            'subjects' => $query->get(),
             'server_time' => now()->toIso8601String() 
         ]);
     }
 
     // =========================================================================
-    // ☁️ FASE 2: RECEBER CADERNOS (COM PROTOCOLO DE FUSÃO DE CAPAS)
+    // 📓 2. SINCRONIZAÇÃO DE CADERNOS (MONETIZAÇÃO + VERIFICAÇÃO DE ROLES)
     // =========================================================================
-    public function pushNotebooks(Request $request){
+    public function pushNotebooks(Request $request)
+    {
         $user = $request->user();
         $clientNotebooks = $request->input('notebooks', []);
         $syncedNotebooks = [];
 
         foreach ($clientNotebooks as $notebookData) {
-            // 1. Descobrimos qual é a Disciplina Mãe no servidor
-            $subject = Subject::where('user_id', $user->id)
-                ->where('id', $notebookData['subject_id'])
-                ->first();
-
-            $subjectId = $subject ? $subject->id : $notebookData['subject_id'];
-            $notebook = null;
-
-            // 2. Se já tem server_id, busca diretamente para atualizar
-            if (!empty($notebookData['server_id'])) {
-                $notebook = Notebook::where('id', $notebookData['server_id'])
-                    ->where('subject_id', $subjectId)
-                    ->first();
-            }
-
-            // 3. 🚀 O RADAR DE CAPAS: Se é novo, procura por cadernos com o MESMO TÍTULO dentro desta disciplina
-            if (!$notebook) {
-                $cleanTitle = trim(strtolower($notebookData['title']));
-
-                $notebook = Notebook::where('subject_id', $subjectId)
-                    ->whereRaw('LOWER(TRIM(title)) = ?', [$cleanTitle])
-                    ->orderBy('id', 'asc') // O mais antigo vence e mantém a capa original!
-                    ->first();
-            }
-
-            // 4. EXECUÇÃO DA FUSÃO OU CRIAÇÃO:
-            if ($notebook) {
-                // Se já existia um caderno com esse nome na disciplina, mantemos a cor e formato do antigo!
+            if (!empty($notebookData['is_deleted']) && $notebookData['is_deleted'] == 1) {
                 if (!empty($notebookData['server_id'])) {
-                    $notebook->update([
-                        'title'       => trim($notebookData['title']),
-                        'cover_type'  => $notebookData['cover_type'] ?? 'color',
-                        'color'       => $notebookData['color'],
-                        'cover_image' => $notebookData['cover_image'],
-                        'line_type'   => $notebookData['line_type'],
-                        'paper_size'  => $notebookData['paper_size'] ?? 'A4',
-                    ]);
-                } else {
-                    Log::info("🧲 [Fusão] Caderno duplicado evitado! Fundido '{$notebookData['title']}' no ID {$notebook->id}.");
+                    $notebook = Notebook::where('id', $notebookData['server_id'])
+                        ->whereHas('subject', function($q) use ($user) { $q->where('user_id', $user->id); })
+                        ->first();
+                    if ($notebook) { $notebook->delete(); }
                 }
+                $syncedNotebooks[] = ['client_id' => $notebookData['id'], 'server_id' => $notebookData['server_id'] ?? null];
+                continue;
+            }
+
+            $notebook = null;
+            $subjectId = $notebookData['subject_id'];
+
+            if (!empty($notebookData['server_id'])) {
+                // 🛡️ CAMADA DE SEGURANÇA AUTORIZADA: Só dono ou convidado 'editor' alteram dados
+                $isOwner = Notebook::where('id', $notebookData['server_id'])
+                    ->whereHas('subject', function($q) use ($user) { $q->where('user_id', $user->id); })
+                    ->exists();
+
+                $isSharedEditor = DB::table('notebook_user')
+                    ->where('notebook_id', $notebookData['server_id'])
+                    ->where('user_id', $user->id)
+                    ->where('role', 'editor')
+                    ->exists();
+
+                if (!$isOwner && !$isSharedEditor) {
+                    Log::warning("🚨 [SEGURANÇA] Bloqueado push ilegal de caderno por {$user->email}");
+                    $syncedNotebooks[] = ['client_id' => $notebookData['id'], 'server_id' => $notebookData['server_id']];
+                    continue; 
+                }
+
+                $notebook = Notebook::find($notebookData['server_id']);
+                if ($notebook) { $subjectId = $notebook->subject_id; } 
+            }
+
+            if ($notebook) {
+                $notebook->update([
+                    'title'       => trim($notebookData['title']),
+                    'cover_type'  => $notebookData['cover_type'] ?? 'color',
+                    'color'       => $notebookData['color'],
+                    'cover_image' => $notebookData['cover_image'],
+                    'line_type'   => $notebookData['line_type'],
+                    'paper_size'  => $notebookData['paper_size'] ?? 'A4',
+                ]);
             } else {
-                // Se não existia, encadernamos um novo!
+                $subjectExists = Subject::where('user_id', $user->id)->where('id', $subjectId)->exists();
+                if (!$subjectExists) { continue; }
+
                 $notebook = Notebook::create([
                     'subject_id'  => $subjectId,
                     'title'       => trim($notebookData['title']),
@@ -206,91 +151,49 @@ class SyncController extends Controller
                 ]);
             }
 
-            $syncedNotebooks[] = [
-                'client_id' => $notebookData['id'],
-                'server_id' => $notebook->id,
-            ];
+            $syncedNotebooks[] = ['client_id' => $notebookData['id'], 'server_id' => $notebook->id];
         }
 
-        return response()->json([
-            'message' => 'Cadernos sincronizados e fundidos com sucesso.',
-            'synced_notebooks' => $syncedNotebooks
-        ]);
+        return response()->json(['message' => 'Cadernos processados.', 'synced_notebooks' => $syncedNotebooks]);
     }
 
-    // =========================================================================
-    // 📥 FASE 2.1: ENVIAR CADERNOS PARA O CLIENTE (PULL)
-    // =========================================================================
-    public function pullNotebooks(Request $request) {
-        $user = $request->user();
-        $lastSyncedAt = $request->query('last_synced_at');
-
-        // 1. Buscar os cadernos criados pelo próprio utilizador
-        $ownNotebooks = Notebook::whereHas('subject', function ($query) use ($user) {
-            $query->where('user_id', $user->id);
-        })->when($lastSyncedAt, function($q) use ($lastSyncedAt) {
-            return $q->where('updated_at', '>', $lastSyncedAt);
-        })->get();
-
-        // 2. Buscar os cadernos que foram partilhados com ele
-        $sharedNotebooks = Notebook::whereHas('sharedUsers', function ($query) use ($user) {
-            $query->where('user_id', $user->id);
-        })->when($lastSyncedAt, function($q) use ($lastSyncedAt) {
-            return $q->where('updated_at', '>', $lastSyncedAt);
-        })->get()->map(function($notebook) {
-            // 🚀 O TRADUTOR: Como este caderno pertence a outra disciplina na nuvem,
-            // mascaramos o subject_id como 999999 para o SQLite do Aluno B aceitar!
-            $notebook->subject_id = 999999; 
-            return $notebook;
-        });
-
-        // 3. Unificar as duas coleções numa estante universal única
-        $mergedNotebooks = $ownNotebooks->concat($sharedNotebooks);
-
-        return response()->json([
-            'message' => 'Rastreio de cadernos concluído na estante universal! 📚',
-            'notebooks' => $mergedNotebooks,
-            'server_time' => now()->toIso8601String()
-        ]);
-    }
-
-    // =========================================================================
-    // 📥 FASE 3.1: ENVIAR FOLHAS, DESENHOS E FOTOS PARA O CLIENTE (PULL)
-    // =========================================================================
-   public function pullPages(Request $request)
+    public function pullNotebooks(Request $request) 
     {
         $user = $request->user();
         $lastSyncedAt = $request->query('last_synced_at');
 
-        // 🛡️ BLINDAGEM MULTI-CAMADAS: Puxar folhas de cadernos próprios OU partilhados
-        $query = Page::whereHas('notebook', function ($q) use ($user) {
-            $q->where(function ($innerQuery) use ($user) {
-                // Folhas de cadernos próprios
-                $innerQuery->whereHas('subject', function ($subQuery) use ($user) {
-                    $subQuery->where('user_id', $user->id);
-                })
-                // OU folhas de cadernos partilhados
-                ->orWhereHas('sharedUsers', function ($subQuery) use ($user) {
-                    $subQuery->where('user_id', $user->id);
-                });
-            });
+        // 1. Cadernos Próprios (Injeta papel 'owner')
+        $ownNotebooks = Notebook::whereHas('subject', function ($query) use ($user) {
+            $query->where('user_id', $user->id);
+        })->get()->map(function($notebook) {
+            $notebook->role = 'owner';
+            return $notebook;
         });
 
-        if ($lastSyncedAt) {
-            $query->where('updated_at', '>', $lastSyncedAt);
-        }
+        // 2. Cadernos Partilhados (Lê o papel real e zera a FK de disciplina para o SQLite)
+        $sharedNotebooks = DB::table('notebooks')
+            ->join('notebook_user', 'notebooks.id', '=', 'notebook_user.notebook_id')
+            ->where('notebook_user.user_id', $user->id)
+            ->select('notebooks.*', 'notebook_user.role')
+            ->get()
+            ->map(function($notebook) {
+                $notebook->server_id = $notebook->id; 
+                $notebook->subject_id = null; // 🟢 HIGIENE RELACIONAL PURA! Rebentámos com o 999999
+                return $notebook;
+            });
 
         return response()->json([
-            'message' => 'Rastreio de páginas e desenhos concluído.',
-            'pages' => $query->get(),
+            'message' => 'Estante universal sincronizada com sucesso.',
+            'notebooks' => $ownNotebooks->concat($sharedNotebooks),
             'server_time' => now()->toIso8601String()
         ]);
     }
 
     // =========================================================================
-    // ☁️ FASE 3: RECEBER FOLHAS (COM PROTOCOLO ANTI-COLISÃO DE PAGINAÇÃO)
+    // ✍️ 3. SINCRONIZAÇÃO DE PÁGINAS (PRESERVA IMAGENS BASE64, STROKES E TEXT_DATA)
     // =========================================================================
-    public function pushPages(Request $request){
+    public function pushPages(Request $request)
+    {
         $user = $request->user();
         $clientPages = $request->input('pages', []);
         $syncedPages = [];
@@ -298,34 +201,33 @@ class SyncController extends Controller
         foreach ($clientPages as $pageData) {
             $notebookId = $pageData['notebook_id'];
             $targetPageNumber = $pageData['page_number'];
-            $page = null;
 
-            // 1. Se já tem server_id (id), é uma atualização de um desenho existente na nuvem
-           if (!empty($pageData['server_id'])) {
-                $page = Page::where('id', $pageData['server_id']) // 👈 Procura pelo ID Oficial!
-                    ->where('notebook_id', $notebookId)
-                    ->first();
+            $notebook = Notebook::find($notebookId);
+            if (!$notebook) { continue; }
+
+            // Verificação de autorização de escrita na folha
+            $isOwner = $notebook->subject()->where('user_id', $user->id)->exists();
+            $isEditor = DB::table('notebook_user')->where('notebook_id', $notebookId)->where('user_id', $user->id)->where('role', 'editor')->exists();
+
+            if (!$isOwner && !$isEditor) {
+                Log::warning("🚨 [BLOQUEIO] Tentativa de desenho não autorizada por {$user->email}");
+                continue;
             }
 
-            // 2. 🚀 O RADAR DE PAGINAÇÃO: Se é uma folha NOVA (sem server_id)...
-            if (!$page) {
-                // Verificamos se este caderno já tem alguma folha a ocupar este número exato!
-                $collision = Page::where('notebook_id', $notebookId)
-                    ->where('page_number', $targetPageNumber)
-                    ->exists();
+            $page = null;
+            if (!empty($pageData['server_id'])) {
+                $page = Page::where('id', $pageData['server_id'])->where('notebook_id', $notebookId)->first();
+            }
 
+            if (!$page) {
+                $collision = Page::where('notebook_id', $notebookId)->where('page_number', $targetPageNumber)->exists();
                 if ($collision) {
                     $maxPage = Page::where('notebook_id', $notebookId)->max('page_number');
-                    $newPageNumber = ($maxPage ? $maxPage : 0) + 1;
-                    
-                    Log::info("📑 [Paginação] Colisão evitada no Caderno {$notebookId}! Folha {$targetPageNumber} reposicionada como {$newPageNumber}.");
-                    
-                    $targetPageNumber = $newPageNumber;
+                    $targetPageNumber = ($maxPage ? $maxPage : 0) + 1;
                 }
             }
-            
 
-            // 3. Processamento de Imagens Base64 (Mantém a mesma lógica limpa que fizemos ontem)
+            // Conversão de Anexos Fotográficos Base64 para URLs permanentes
             $imagesArray = $pageData['image_data'] ?? [];
             $cleanImages = [];
             foreach ($imagesArray as $img) {
@@ -344,9 +246,8 @@ class SyncController extends Controller
                 $cleanImages[] = $img;
             }
 
-            // 4. Gravação ou Atualização usando o número da página (possivelmente corrigido!)
+            // Gravação exata respeitando o ecossistema JSON nativo do MySQL
             if ($page) {
-                // Atualização de folha existente
                 $page->update([
                     'is_landscape' => $pageData['is_landscape'] ?? false,
                     'header_data'  => $pageData['header_data'],
@@ -356,10 +257,9 @@ class SyncController extends Controller
                     'image_data'   => $cleanImages,
                 ]);
             } else {
-                // Criação da folha nova na posição livre ou anexada no fim
                 $page = Page::create([
                     'notebook_id'  => $notebookId,
-                    'page_number'  => $targetPageNumber, // <--- O SEGREDO ESTÁ AQUI!
+                    'page_number'  => $targetPageNumber,
                     'is_landscape' => $pageData['is_landscape'] ?? false,
                     'header_data'  => $pageData['header_data'],
                     'footer_data'  => $pageData['footer_data'],
@@ -369,17 +269,37 @@ class SyncController extends Controller
                 ]);
             }
 
-            // 5. Devolvemos ao telemóvel o ID oficial E O NÚMERO DA PÁGINA CORRIGIDO!
             $syncedPages[] = [
-                'client_id'   => $pageData['client_id'] ?? $pageData['id'], // Usa o id original do SQLite!
+                'client_id'   => $pageData['client_id'] ?? $pageData['id'],
                 'server_id'   => $page->id,
                 'page_number' => $page->page_number
             ];
         }
 
+        return response()->json(['message' => 'Desenhos salvos com sucesso.', 'synced_pages' => $syncedPages]);
+    }
+
+    public function pullPages(Request $request)
+    {
+        $user = $request->user();
+        $lastSyncedAt = $request->query('last_synced_at');
+
+        $query = Page::whereHas('notebook', function ($q) use ($user) {
+            $q->where(function ($inner) use ($user) {
+                $inner->whereHas('subject', function ($sub) use ($user) {
+                    $sub->where('user_id', $user->id);
+                })->orWhereHas('sharedUsers', function ($sub) use ($user) {
+                    $sub->where('user_id', $user->id);
+                });
+            });
+        });
+
+        if ($lastSyncedAt) { $query->where('updated_at', '>', $lastSyncedAt); }
+
         return response()->json([
-            'message' => 'Folhas sincronizadas e paginação re-ordenada sem colisões.',
-            'synced_pages' => $syncedPages
+            'message' => 'Rastreio de páginas concluído.',
+            'pages' => $query->get(),
+            'server_time' => now()->toIso8601String()
         ]);
     }
 }
