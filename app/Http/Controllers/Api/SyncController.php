@@ -246,26 +246,38 @@ class SyncController extends Controller
                 $cleanImages[] = $img;
             }
 
+            $safeHeader = empty($pageData['header_data']) ? null : 
+                          (is_array($pageData['header_data']) ? json_encode($pageData['header_data']) : json_encode((string)$pageData['header_data']));
+                          
+            $safeFooter = empty($pageData['footer_data']) ? null : 
+                          (is_array($pageData['footer_data']) ? json_encode($pageData['footer_data']) : json_encode((string)$pageData['footer_data']));
+                          
+            $safeStrokes = empty($pageData['stroke_data']) ? json_encode([]) : 
+                           (is_string($pageData['stroke_data']) ? $pageData['stroke_data'] : json_encode($pageData['stroke_data']));
+                           
+            $safeTexts = empty($pageData['text_data']) ? json_encode([]) : 
+                         (is_string($pageData['text_data']) ? $pageData['text_data'] : json_encode($pageData['text_data']));
+
             // Gravação exata respeitando o ecossistema JSON nativo do MySQL
             if ($page) {
                 $page->update([
                     'is_landscape' => $pageData['is_landscape'] ?? false,
-                    'header_data'  => $pageData['header_data'],
-                    'footer_data'  => $pageData['footer_data'],
-                    'stroke_data'  => $pageData['stroke_data'] ?? [],
-                    'text_data'    => $pageData['text_data'] ?? [],
-                    'image_data'   => $cleanImages,
+                    'header_data'  => $safeHeader,
+                    'footer_data'  => $safeFooter,
+                    'stroke_data'  => $safeStrokes,
+                    'text_data'    => $safeTexts,
+                    'image_data'   =>json_encode($cleanImages),
                 ]);
             } else {
                 $page = Page::create([
                     'notebook_id'  => $notebookId,
                     'page_number'  => $targetPageNumber,
                     'is_landscape' => $pageData['is_landscape'] ?? false,
-                    'header_data'  => $pageData['header_data'],
-                    'footer_data'  => $pageData['footer_data'],
-                    'stroke_data'  => $pageData['stroke_data'] ?? [],
-                    'text_data'    => $pageData['text_data'] ?? [],
-                    'image_data'   => $cleanImages,
+                    'header_data'  => $safeHeader,
+                    'footer_data'  => $safeFooter,
+                    'stroke_data'  => $safeStrokes,
+                    'text_data'    => $safeTexts,
+                    'image_data'   => json_encode($cleanImages),
                 ]);
             }
 
