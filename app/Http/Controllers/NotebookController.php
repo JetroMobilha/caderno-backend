@@ -148,7 +148,8 @@ class NotebookController extends Controller
 
         // Busca todos os convidados na tabela pivô
         $collaborators = DB::table('users')
-            ->join('notebook_user', 'users.id', '=', 'notebook_user.notebook_id')
+            // 🚀 CORREÇÃO AQUI: users.id cruza com notebook_user.user_id !
+            ->join('notebook_user', 'users.id', '=', 'notebook_user.user_id') 
             ->where('notebook_user.notebook_id', $notebook->id)
             ->select('users.name', 'users.email', 'notebook_user.role')
             ->get();
