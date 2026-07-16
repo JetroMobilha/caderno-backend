@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Subject;
+use App\Events\SyncRequested;
 
 class SubjectController extends Controller
 {
@@ -39,6 +40,9 @@ class SubjectController extends Controller
             'icon' => $request->icon ?? 'book',
         ]);
 
+        
+        SyncRequested::dispatch($request->user()->id);
+
         return response()->json($subject, 201);
     }
 
@@ -67,6 +71,8 @@ class SubjectController extends Controller
             'icon' => $request->icon ?? $subject->icon,
         ]);
 
+        SyncRequested::dispatch($request->user()->id);
+
         return response()->json($subject, 200);
     }
 
@@ -83,6 +89,8 @@ class SubjectController extends Controller
 
         // 🗑️ Executa o Soft Delete
         $subject->delete();
+
+        SyncRequested::dispatch(auth()->id());
 
         return response()->json(['message' => 'Disciplina eliminada com sucesso.']);
     }

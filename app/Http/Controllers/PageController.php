@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Notebook;
 use App\Models\Page;
+use App\Events\SyncRequested;
 use App\Events\PageUpdated; // Certifica-te de criar este evento
 
 class PageController extends Controller
@@ -70,7 +71,7 @@ class PageController extends Controller
         // BROADCAST: Avisa os outros utilizadores que a página mudou (Tempo Real)
         // O método toOthers() garante que quem desenhou não receba o próprio traço de volta
         broadcast(new PageUpdated($notebook->id, $page->id, $page->page_number, $newStrokes))->toOthers();
-
+        
         return response()->json($page, 201);
     }
 }

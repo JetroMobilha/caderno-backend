@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 use App\Models\Subject;
 use App\Models\Notebook;
 use App\Models\Page;  
+use App\Events\SyncRequested;
 
 class SyncController extends Controller
 {
@@ -61,6 +62,12 @@ class SyncController extends Controller
             }
 
             $syncedSubjects[] = ['client_id' => $subjectData['id'], 'server_id' => $subject->id];
+        }
+
+        if($syncedSubjects) {
+            // ⚡ INTERCONEXÃO EM TEMPO REAL: 
+            // Dispara o evento Reverb para avisar todos os outros dispositivos deste utilizador!
+            SyncRequested::dispatch($request->user()->id);
         }
 
         return response()->json(['message' => 'Disciplinas processadas.', 'synced_subjects' => $syncedSubjects]);
@@ -159,6 +166,11 @@ class SyncController extends Controller
             $syncedNotebooks[] = ['client_id' => $notebookData['id'], 'server_id' => $notebook->id];
         }
 
+         if($syncedNotebooks) {
+            // ⚡ INTERCONEXÃO EM TEMPO REAL: 
+            // Dispara o evento Reverb para avisar todos os outros dispositivos deste utilizador!
+            SyncRequested::dispatch($request->user()->id);
+        }
         return response()->json(['message' => 'Cadernos processados.', 'synced_notebooks' => $syncedNotebooks]);
     }
 
@@ -291,6 +303,12 @@ class SyncController extends Controller
                 'server_id'   => $page->id,
                 'page_number' => $page->page_number
             ];
+        }
+
+         if($syncedPages) {
+            // ⚡ INTERCONEXÃO EM TEMPO REAL: 
+            // Dispara o evento Reverb para avisar todos os outros dispositivos deste utilizador!
+            SyncRequested::dispatch($request->user()->id);
         }
 
         return response()->json(['message' => 'Desenhos salvos com sucesso.', 'synced_pages' => $syncedPages]);

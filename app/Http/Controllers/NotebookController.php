@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use App\Models\Subject;
 use App\Models\Notebook;
 use App\Models\User;
+use App\Events\SyncRequested;
 
 class NotebookController extends Controller
 {
@@ -65,6 +66,8 @@ class NotebookController extends Controller
             'paper_size'  => $request->paper_size ?? 'A4',
         ]);
 
+        SyncRequested::dispatch($request->user()->id);
+
         return response()->json($notebook, 201);
     }
 
@@ -84,7 +87,7 @@ class NotebookController extends Controller
         }
 
         $notebook->update($request->only(['title', 'cover_type', 'color', 'line_type', 'paper_size', 'price', 'is_published', 'description']));
-
+        SyncRequested::dispatch($request->user()->id);
         return response()->json($notebook, 200);
     }
 
@@ -100,6 +103,7 @@ class NotebookController extends Controller
         }
 
         $notebook->delete();
+        SyncRequested::dispatch($request->user()->id);
         return response()->json(['message' => 'Caderno movido para a lixeira.']);
     }
 

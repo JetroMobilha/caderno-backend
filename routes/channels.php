@@ -40,3 +40,10 @@ Broadcast::channel('notebook.{notebookId}', function ($user, $notebookId) {
 
     return false;
 }, ['middleware' => ['auth:sanctum']]);
+
+// 🚀 O CANAL PRIVADO DE SINCRONIZAÇÃO MULTI-DISPOSITIVO
+Broadcast::channel('user.{id}', function ($user, $id) {
+    // Regra de Ouro: O ID do utilizador autenticado via Sanctum 
+    // tem de ser exatamente igual ao ID do canal que ele tenta ouvir.
+    return (int) $user->id === (int) $id;
+});
