@@ -71,8 +71,13 @@ class SyncController extends Controller
         $user = $request->user();
         $lastSyncedAt = $request->query('last_synced_at');
         
-        $query = Subject::where('user_id', $user->id);
-        if ($lastSyncedAt) { $query->where('updated_at', '>', $lastSyncedAt); }
+        // 🚀 BLINDAGEM DE MULTI-DISPOSITIVOS: withTrashed()
+        // Permite que o telemóvel B saiba que o telemóvel A apagou a disciplina!
+        $query = Subject::withTrashed()->where('user_id', $user->id);
+        
+        if ($lastSyncedAt) { 
+            $query->where('updated_at', '>', $lastSyncedAt); 
+        }
 
         return response()->json([
             'message' => 'Rastreio de disciplinas concluído.',
