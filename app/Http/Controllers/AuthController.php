@@ -160,29 +160,50 @@ class AuthController extends Controller
     }
 
     public function updateProfile(Request $request) {
-    $user = $request->user();
-    
-    $request->validate([
-        'name' => 'required|string|max:255',
-        'avatar' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
-    ]);
-
-    $user->name = $request->name;
-
-    if ($request->hasFile('avatar')) {
-        // Apaga a foto antiga se existir
-        if ($user->avatar) { Storage::disk('public')->delete($user->avatar); }
+        $user = $request->user();
         
-        $path = $request->file('avatar')->store('avatars', 'public');
-        $user->avatar = $path;
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'avatar' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
+        ]);
+
+        $user->name = $request->name;
+
+        if ($request->hasFile('avatar')) {
+            // Apaga a foto antiga se existir
+            if ($user->avatar) { Storage::disk('public')->delete($user->avatar); }
+            
+            $path = $request->file('avatar')->store('avatars', 'public');
+            $user->avatar = $path;
+        }
+
+        $user->save();
+
+        return response()->json([
+            'message' => 'Perfil atualizado!',
+            'user' => $user,
+            'avatar_url' => $user->avatar ? asset('storage/' . $user->avatar) : null
+        ]);
     }
 
-    $user->save();
+    // =========================================================================
+    // 🔍 SUGERIR UTILIZADORES REGISTADOS (Autocomplete Global)
+    // =========================================================================
+    public function searchUsers(Request $request)
+    {
+        $search = $request->query('q');
+        
+        // Só pesquisa se houver pelo menos 3 caracteres
+        if (strlen($search) < 3) {
+            return response()->json([]);
+        }
 
-    return response()->json([
-        'message' => 'Perfil atualizado!',
-        'user' => $user,
-        'avatar_url' => $user->avatar ? asset('storage/' . $user->avatar) : null
-    ]);
-}
+        $users = User::where('email', 'LIKE', "%{$search}%")
+            ->where('id', '!=', $request->user()->id) // Oculta a própria pessoa
+            ->limit(5)
+            ->get(['email', 'name']);
+
+        return response()->json($users);
+    }
+
 }

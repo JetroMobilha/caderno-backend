@@ -3,84 +3,178 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use App\Models\Subject;
 use App\Models\Notebook;
+use App\Models\User;
 
 class NotebookController extends Controller
 {
-    // Listar todos os cadernos de uma disciplina específica
+    // =========================================================================
+    // 📚 LISTAR CADERNOS
+    // =========================================================================
     public function index(Request $request, $subject_id)
-{
-    $user = $request->user();
+    {
+        $user = $request->user();
 
-    // 🎯 SE FOR A DISCIPLINA VIRTUAL DE PARTILHAS:
-    if ($subject_id == 999999) {
-        // Pega os cadernos partilhados e injeta dinamicamente o ID 999999
-        $sharedNotebooks = $user->sharedNotebooks->map(function($notebook) {
-            $notebook->subject_id = 999999; // 🚀 Força o pai a ser a disciplina de partilhas!
-            return $notebook;
+        // 🎯 O HUB DE PARTILHAS (O Flutter envia -1 para a aba de partilhados)
+        if ($subject_id == 999999 || $subject_id == -1) {
+            $sharedNotebooks = DB::table('notebooks')
+                ->join('notebook_user', 'notebooks.id', '=', 'notebook_user.notebook_id')
+                ->where('notebook_user.user_id', $user->id)
+                ->select('notebooks.*', 'notebook_user.role')
+                ->get()
+                ->map(function($notebook) {
+                    $notebook->subject_id = -1; // Injeta o ID virtual para a UI da Web não quebrar
+                    return $notebook;
+                });
+
+            return response()->json($sharedNotebooks);
+        }
+
+        // Fluxo normal para cadernos próprios
+        $subject = $user->subjects()->findOrFail($subject_id);
+        $notebooks = $subject->notebooks->map(function($n) {
+            $n->role = 'owner';
+            return $n;
         });
 
-        return response()->json($sharedNotebooks);
+        return response()->json($notebooks);
     }
 
-    // Fluxo normal para disciplinas criadas pelo utilizador
-    $subject = $user->subjects()->findOrFail($subject_id);
-    return response()->json($subject->notebooks);
-}
-
-    // Criar um caderno dentro de uma disciplina
+    // =========================================================================
+    // ➕ CRIAR CADERNO
+    // =========================================================================
     public function store(Request $request, $subject_id)
     {
-        // 1. Validar se a disciplina é realmente do utilizador
         $subject = $request->user()->subjects()->findOrFail($subject_id);
 
-        // 2. Validar os dados enviados pelo Flutter
         $request->validate([
-            'title' => 'required|string|max:255',
-            'cover_type' => 'nullable|string',
-            'color' => 'nullable|string|max:50',
-            'cover_image' => 'nullable|string|max:255',
-            'line_type' => 'nullable|string|max:50',
+            'title'       => 'required|string|max:255',
+            'cover_type'  => 'nullable|string',
+            'color'       => 'nullable|string|max:50',
+            'line_type'   => 'nullable|string|max:50',
+            'paper_size'  => 'nullable|string|max:10',
         ]);
 
-        // 3. Criar e associar o caderno
         $notebook = $subject->notebooks()->create([
-            'title' => $request->title,
-            'cover_type' => $request->cover_type ?? 'basic',
-            'color' => $request->color ?? '#000000',
-            'cover_image' => $request->cover_image ?? null,
-            'line_type' => $request->line_type ?? null,
+            'title'       => $request->title,
+            'cover_type'  => $request->cover_type ?? 'color',
+            'color'       => $request->color ?? '#0F4C5C',
+            'line_type'   => $request->line_type ?? 'ruled',
+            'paper_size'  => $request->paper_size ?? 'A4',
         ]);
 
         return response()->json($notebook, 201);
     }
 
-    // Apagar um caderno (Mover para a lixeira)
-    public function destroy(\App\Models\Notebook $notebook)
+    // =========================================================================
+    // ✏️ ATUALIZAR CADERNO (Web/Síncrono)
+    // =========================================================================
+    public function update(Request $request, $id)
     {
-        // 1. Opcional, mas recomendado: Verificar se o caderno pertence ao utilizador logado
-        if ($notebook->subject->user_id !== auth()->id()) {
-            return response()->json(['message' => 'Não autorizado.'], 403);
+        $notebook = Notebook::findOrFail($id);
+
+        // Verifica se é dono ou editor
+        $isOwner = $notebook->subject()->where('user_id', $request->user()->id)->exists();
+        $isEditor = DB::table('notebook_user')->where('notebook_id', $id)->where('user_id', $request->user()->id)->where('role', 'editor')->exists();
+
+        if (!$isOwner && !$isEditor) {
+            return response()->json(['message' => 'Acesso negado.'], 403);
         }
 
-        // 2. Apagar o caderno (Soft Delete)
-        $notebook->delete();
+        $notebook->update($request->only(['title', 'cover_type', 'color', 'line_type', 'paper_size', 'price', 'is_published', 'description']));
 
-        // 3. Devolver a resposta que o teu teste está à espera
+        return response()->json($notebook, 200);
+    }
+
+    // =========================================================================
+    // 🗑️ APAGAR CADERNO
+    // =========================================================================
+    public function destroy(Request $request, $id)
+    {
+        $notebook = Notebook::findOrFail($id);
+
+        if ($notebook->subject->user_id !== $request->user()->id) {
+            return response()->json(['message' => 'Apenas o dono pode apagar.'], 403);
+        }
+
+        $notebook->delete();
         return response()->json(['message' => 'Caderno movido para a lixeira.']);
     }
 
-    // Exportar caderno para PDF
-    public function exportPdf(Request $request, $id)
+    // =========================================================================
+    // 🤝 PARTILHAR CADERNO COM OUTRO UTILIZADOR (EDTECH)
+    // =========================================================================
+    public function share(Request $request, $id)
     {
-        // Garante que o caderno pertence ao utilizador autenticado via relação direta
-        $notebook = $request->user()->notebooks()->findOrFail($id);
+        $request->validate([
+            'email' => 'required|email',
+            'role'  => 'required|in:editor,viewer,student'
+        ]);
 
-        // Aqui futuramente usarias uma biblioteca como DomPDF ou Browsershot
-        // Por agora, retornamos um PDF vazio simulado para validar o teste
-        return response('%PDF-1.4 ... content ...', 200)
-            ->header('Content-Type', 'application/pdf')
-            ->header('Content-Disposition', 'attachment; filename="'.$notebook->title.'.pdf"');
+        // 1. Garante que quem está a partilhar é o dono absoluto
+        $notebook = Notebook::whereHas('subject', function($q) use ($request) {
+            $q->where('user_id', $request->user()->id);
+        })->findOrFail($id);
+
+        // 2. Procura o convidado pelo e-mail
+        $guest = User::where('email', $request->email)->first();
+        if (!$guest) {
+            return response()->json(['message' => 'Utilizador não encontrado no sistema.'], 404);
+        }
+
+        if ($guest->id === $request->user()->id) {
+            return response()->json(['message' => 'Não podes partilhar o caderno contigo mesmo.'], 400);
+        }
+
+        // 3. Insere ou atualiza o convite na Tabela Pivô (notebook_user)
+        DB::table('notebook_user')->updateOrInsert(
+            ['notebook_id' => $notebook->id, 'user_id' => $guest->id],
+            ['role' => $request->role, 'updated_at' => now()] // O Laravel trata da data
+        );
+
+        return response()->json(['message' => 'Caderno partilhado com sucesso!']);
+    }
+
+    // =========================================================================
+    // 👥 B. LISTAR COLABORADORES ATUAIS DO CADERNO
+    // =========================================================================
+    public function getCollaborators(Request $request, $id)
+    {
+        $notebook = Notebook::whereHas('subject', function($q) use ($request) {
+            $q->where('user_id', $request->user()->id);
+        })->findOrFail($id);
+
+        // Busca todos os convidados na tabela pivô
+        $collaborators = DB::table('users')
+            ->join('notebook_user', 'users.id', '=', 'notebook_user.notebook_id')
+            ->where('notebook_user.notebook_id', $notebook->id)
+            ->select('users.name', 'users.email', 'notebook_user.role')
+            ->get();
+
+        return response()->json($collaborators);
+    }
+
+    // =========================================================================
+    // 🧨 C. REVOCOAR PERMISSÃO / REMOVER ACESSO
+    // =========================================================================
+    public function unshare(Request $request, $id)
+    {
+        $request->validate(['email' => 'required|email']);
+
+        $notebook = Notebook::whereHas('subject', function($q) use ($request) {
+            $q->where('user_id', $request->user()->id);
+        })->findOrFail($id);
+
+        $guest = \App\Models\User::where('email', $request->email)->firstOrFail();
+
+        // Elimina o vínculo na tabela pivô
+        DB::table('notebook_user')
+            ->where('notebook_id', $notebook->id)
+            ->where('user_id', $guest->id)
+            ->delete();
+
+        return response()->json(['message' => 'Acesso revogado com sucesso.']);
     }
 }
