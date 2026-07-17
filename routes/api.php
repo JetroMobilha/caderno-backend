@@ -11,6 +11,7 @@ use App\Http\Controllers\NotebookController;
 use App\Http\Controllers\PageController;
 use App\Http\Controllers\WebRtcController;
 use App\Http\Controllers\Api\SyncController;
+use App\Http\Controllers\Api\MarketplaceController;
 
 /*
 |--------------------------------------------------------------------------
@@ -81,4 +82,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/sync/pages/push', [SyncController::class, 'pushPages']);
     Route::get('/sync/pages/pull', [SyncController::class, 'pullPages']);
+
+
+    // Listar e pesquisar cadernos na loja
+    Route::get('/marketplace/notebooks', [MarketplaceController::class, 'index']);
+    
+    // Adquirir (Clonar) um caderno para a conta do estudante
+    Route::post('/marketplace/notebooks/{id}/acquire', [MarketplaceController::class, 'acquire']);
 });
