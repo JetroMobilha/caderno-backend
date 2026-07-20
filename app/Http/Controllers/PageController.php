@@ -27,17 +27,9 @@ class PageController extends Controller
     
     public function store(Request $request, $notebook_id) {
         $notebook = Notebook::findOrFail($notebook_id);
-
-        $request->validate([
-            'page_number' => 'required|integer',
-            'stroke_data' => 'nullable|array',
-            'text_data'   => 'nullable|array',
-            'image_data'  => 'nullable|array',
-        ]);
-
         $page = $notebook->pages()->firstOrCreate(['page_number' => $request->page_number]);
 
-        // Aplicar fusão para cada tipo de dado se enviado
+        // Fusão inteligente para traços finais via API
         if ($request->has('stroke_data')) {
             $page->stroke_data = json_encode(Page::mergeJsonItems($page->stroke_data, $request->stroke_data));
         }
@@ -50,9 +42,14 @@ class PageController extends Controller
 
         $page->save();
 
-        // 📢 Notificar em tempo real os outros colaboradores
-        // IMPORTANTE: $request->stroke_data contém apenas os traços novos para o broadcast ser leve
-        broadcast(new PageUpdated($notebook->id, $page->id, $page->page_number, $request->stroke_data ?? []))->toOthers();
+        // 📢 Broadcast com o sender_id para o Flutter ignorar o eco
+        broadcast(new PageUpdated(
+            $notebook->id,
+            $page->id,
+            $page->page_number,
+            $request->stroke_data ?? [],
+            $request->user()->id // sender_id
+        ))->toOthers();
 
         return response()->json($page, 201);
     }

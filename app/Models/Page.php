@@ -37,17 +37,14 @@ class Page extends Model
         $existing = is_string($existingJson) ? json_decode($existingJson, true) : ($existingJson ?? []);
         $map = [];
 
-        // 1. Indexar o que já existe pelo ID (UUID vindo do Flutter)
         foreach ($existing as $item) {
             if (isset($item['id'])) $map[$item['id']] = $item;
         }
 
-        // 2. Fundir com o que está a chegar
         foreach ($incomingArray as $item) {
             if (isset($item['id'])) {
                 $id = $item['id'];
-                // Se o Flutter marcou como apagado, removemos da nuvem
-                if (!empty($item['is_deleted']) && $item['is_deleted'] == true) {
+                if (!empty($item['is_deleted']) && ($item['is_deleted'] == true || $item['is_deleted'] == 1)) {
                     unset($map[$id]);
                 } else {
                     $map[$id] = $item;

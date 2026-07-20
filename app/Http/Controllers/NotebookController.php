@@ -18,22 +18,22 @@ class NotebookController extends Controller
     {
         $user = $request->user();
 
-        // 🎯 O HUB DE PARTILHAS (O Flutter envia -1 para a aba de partilhados)
-        if ($subject_id == 999999 || $subject_id == -1) {
-            $sharedNotebooks = DB::table('notebooks')
+        // Aba de Partilhados
+        if ($subject_id == -1) {
+            $shared = DB::table('notebooks')
                 ->join('notebook_user', 'notebooks.id', '=', 'notebook_user.notebook_id')
                 ->where('notebook_user.user_id', $user->id)
+                ->whereNull('notebooks.deleted_at') // 🛡️ Correção de fantasmas
                 ->select('notebooks.*', 'notebook_user.role')
                 ->get()
-                ->map(function($notebook) {
-                    $notebook->subject_id = -1; // Injeta o ID virtual para a UI da Web não quebrar
-                    return $notebook;
+                ->map(function($n) {
+                    $n->subject_id = -1;
+                    return $n;
                 });
-
-            return response()->json($sharedNotebooks);
+            return response()->json($shared);
         }
 
-        // Fluxo normal para cadernos próprios
+        // Próprios
         $subject = $user->subjects()->findOrFail($subject_id);
         $notebooks = $subject->notebooks->map(function($n) {
             $n->role = 'owner';
@@ -97,14 +97,12 @@ class NotebookController extends Controller
     public function destroy(Request $request, $id)
     {
         $notebook = Notebook::findOrFail($id);
-
         if ($notebook->subject->user_id !== $request->user()->id) {
-            return response()->json(['message' => 'Apenas o dono pode apagar.'], 403);
+            return response()->json(['message' => 'Sem permissão.'], 403);
         }
-
         $notebook->delete();
-        SyncRequested::dispatch($request->user()->id);
-        return response()->json(['message' => 'Caderno movido para a lixeira.']);
+        \App\Events\SyncRequested::dispatch($request->user()->id);
+        return response()->json(['message' => 'Apagado.']);
     }
 
     // =========================================================================
