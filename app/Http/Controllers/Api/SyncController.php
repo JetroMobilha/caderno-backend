@@ -209,109 +209,64 @@ class SyncController extends Controller
     // =========================================================================
     // ✍️ 3. SINCRONIZAÇÃO DE PÁGINAS (PRESERVA IMAGENS BASE64, STROKES E TEXT_DATA)
     // =========================================================================
-    public function pushPages(Request $request)
-    {
+    public function pushPages(Request $request) {
         $user = $request->user();
         $clientPages = $request->input('pages', []);
         $syncedPages = [];
 
         foreach ($clientPages as $pageData) {
             $notebookId = $pageData['notebook_id'];
-            $targetPageNumber = $pageData['page_number'];
-
             $notebook = Notebook::find($notebookId);
-            if (!$notebook) { continue; }
+            if (!$notebook) continue;
 
-            // Verificação de autorização de escrita na folha
-            $isOwner = $notebook->subject()->where('user_id', $user->id)->exists();
-            $isEditor = DB::table('notebook_user')->where('notebook_id', $notebookId)->where('user_id', $user->id)->where('role', 'editor')->exists();
+            // Encontrar ou criar a folha
+            $page = Page::where('notebook_id', $notebookId)
+                        ->where('page_number', $pageData['page_number'])
+                        ->first() ?? new Page(['notebook_id' => $notebookId, 'page_number' => $pageData['page_number']]);
 
-            if (!$isOwner && !$isEditor) {
-                Log::warning("🚨 [BLOQUEIO] Tentativa de desenho não autorizada por {$user->email}");
-                continue;
-            }
+            // --- MOTOR DE FUSÃO INTELIGENTE ---
 
-            $page = null;
-            if (!empty($pageData['server_id'])) {
-                $page = Page::where('id', $pageData['server_id'])->where('notebook_id', $notebookId)->first();
-            }
+            // 🖌️ Strokes (Traços)
+            $newStrokes = is_string($pageData['stroke_data'] ?? []) ? json_decode($pageData['stroke_data'], true) : ($pageData['stroke_data'] ?? []);
+            $page->stroke_data = json_encode(Page::mergeJsonItems($page->stroke_data, $newStrokes));
 
-            if (!$page) {
-                $collision = Page::where('notebook_id', $notebookId)->where('page_number', $targetPageNumber)->exists();
-                if ($collision) {
-                    $maxPage = Page::where('notebook_id', $notebookId)->max('page_number');
-                    $targetPageNumber = ($maxPage ? $maxPage : 0) + 1;
-                }
-            }
+            // 📝 Text Blocks
+            $newTexts = is_string($pageData['text_data'] ?? []) ? json_decode($pageData['text_data'], true) : ($pageData['text_data'] ?? []);
+            $page->text_data = json_encode(Page::mergeJsonItems($page->text_data, $newTexts));
 
-            // Conversão de Anexos Fotográficos Base64 para URLs permanentes
-            $imagesArray = $pageData['image_data'] ?? [];
-            $cleanImages = [];
-            foreach ($imagesArray as $img) {
+            // 🖼️ Image Blocks (Com tratamento de Base64)
+            $incomingImages = is_string($pageData['image_data'] ?? []) ? json_decode($pageData['image_data'], true) : ($pageData['image_data'] ?? []);
+            $processedImages = [];
+            foreach ($incomingImages as $img) {
                 if (!empty($img['image_base64'])) {
-                    try {
-                        $decodedImage = base64_decode($img['image_base64']);
-                        $filename = 'img_' . uniqid() . '_' . Str::slug($img['id']) . '.png';
-                        $storagePath = 'notebook_images/' . $filename;
-                        Storage::disk('public')->put($storagePath, $decodedImage);
-                        $img['image_path'] = asset('storage/' . $storagePath);
-                    } catch (\Exception $e) {
-                        Log::error("Erro na imagem Base64: " . $e->getMessage());
-                    }
+                    $decoded = base64_decode($img['image_base64']);
+                    $filename = 'img_' . uniqid() . '.png';
+                    Storage::disk('public')->put('notebook_images/' . $filename, $decoded);
+                    $img['image_path'] = asset('storage/notebook_images/' . $filename);
+                    unset($img['image_base64']);
                 }
-                unset($img['image_base64']);
-                $cleanImages[] = $img;
+                $processedImages[] = $img;
             }
+            $page->image_data = json_encode(Page::mergeJsonItems($page->image_data, $processedImages));
 
-            $safeHeader = empty($pageData['header_data']) ? null : 
-                          (is_array($pageData['header_data']) ? json_encode($pageData['header_data']) : json_encode((string)$pageData['header_data']));
-                          
-            $safeFooter = empty($pageData['footer_data']) ? null : 
-                          (is_array($pageData['footer_data']) ? json_encode($pageData['footer_data']) : json_encode((string)$pageData['footer_data']));
-                          
-            $safeStrokes = empty($pageData['stroke_data']) ? json_encode([]) : 
-                           (is_string($pageData['stroke_data']) ? $pageData['stroke_data'] : json_encode($pageData['stroke_data']));
-                           
-            $safeTexts = empty($pageData['text_data']) ? json_encode([]) : 
-                         (is_string($pageData['text_data']) ? $pageData['text_data'] : json_encode($pageData['text_data']));
+            // Metadados básicos
+            $page->is_landscape = $pageData['is_landscape'] ?? $page->is_landscape;
+            $page->header_data = $pageData['header_data'] ?? $page->header_data;
+            $page->footer_data = $pageData['footer_data'] ?? $page->footer_data;
 
-            // Gravação exata respeitando o ecossistema JSON nativo do MySQL
-            if ($page) {
-                $page->update([
-                    'is_landscape' => $pageData['is_landscape'] ?? false,
-                    'header_data'  => $safeHeader,
-                    'footer_data'  => $safeFooter,
-                    'stroke_data'  => $safeStrokes,
-                    'text_data'    => $safeTexts,
-                    'image_data'   =>json_encode($cleanImages),
-                ]);
-            } else {
-                $page = Page::create([
-                    'notebook_id'  => $notebookId,
-                    'page_number'  => $targetPageNumber,
-                    'is_landscape' => $pageData['is_landscape'] ?? false,
-                    'header_data'  => $safeHeader,
-                    'footer_data'  => $safeFooter,
-                    'stroke_data'  => $safeStrokes,
-                    'text_data'    => $safeTexts,
-                    'image_data'   => json_encode($cleanImages),
-                ]);
-            }
+            $page->save();
 
             $syncedPages[] = [
-                'client_id'   => $pageData['client_id'] ?? $pageData['id'],
-                'server_id'   => $page->id,
+                'client_id' => $pageData['client_id'] ?? null,
+                'server_id' => $page->id,
                 'page_number' => $page->page_number
             ];
         }
 
-         if($syncedPages) {
-            // ⚡ INTERCONEXÃO EM TEMPO REAL: 
-            // Dispara o evento Reverb para avisar todos os outros dispositivos deste utilizador!
-            SyncRequested::dispatch($request->user()->id);
-        }
+        // Avisar os outros dispositivos do utilizador (Não confundir com PageUpdated para colaboração)
+        \App\Events\SyncRequested::dispatch($user->id);
 
-        return response()->json(['message' => 'Desenhos salvos com sucesso.', 'synced_pages' => $syncedPages]);
+        return response()->json(['message' => 'Sincronização concluída.', 'synced_pages' => $syncedPages]);
     }
 
     public function pullPages(Request $request)

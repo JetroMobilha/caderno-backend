@@ -25,53 +25,35 @@ class PageController extends Controller
         return response()->json($pages);
     }
     
-    // Salvar ou atualizar os traços de uma página
-    public function store(Request $request, $notebook_id)
-    {
-        // Validação de permissão: Apenas o dono ou um colaborador com role 'editor' pode salvar
-        $notebook = $request->user()->notebooks()->find($notebook_id);
-        
-        if (!$notebook) {
-            $shared = $request->user()->sharedNotebooks()->where('role', 'editor')->findOrFail($notebook_id);
-            $notebook = $shared;
-        }
+    public function store(Request $request, $notebook_id) {
+        $notebook = Notebook::findOrFail($notebook_id);
 
-        // 2. Validar os dados do Flutter
         $request->validate([
             'page_number' => 'required|integer',
-            'stroke_data' => 'required|array' ,
-            'header_data' => 'nullable|array',
-            'footer_data' => 'nullable|array',
-            // Garante que vem um array/json válido
+            'stroke_data' => 'nullable|array',
+            'text_data'   => 'nullable|array',
+            'image_data'  => 'nullable|array',
         ]);
 
-        // Encontra a página ou cria uma nova se não existir
-        $page = $notebook->pages()->firstOrNew(['page_number' => $request->page_number]);
+        $page = $notebook->pages()->firstOrCreate(['page_number' => $request->page_number]);
 
-        // Obtém os traços existentes, ou um array vazio se for uma nova página
-        $existingStrokes = $page->stroke_data ?? [];
-
-        // Obtém os novos traços da requisição (assumimos que o Flutter envia apenas os novos)
-        $newStrokes = $request->stroke_data;
-
-        // Combina os traços existentes com os novos
-        $mergedStrokes = array_merge($existingStrokes, $newStrokes);
-
-        // Atualiza a página com os traços combinados e outros dados
-        $page->stroke_data = $mergedStrokes;
-        // Atualiza header_data e footer_data apenas se forem fornecidos na requisição
-        if ($request->has('header_data')) {
-            $page->header_data = $request->header_data;
+        // Aplicar fusão para cada tipo de dado se enviado
+        if ($request->has('stroke_data')) {
+            $page->stroke_data = json_encode(Page::mergeJsonItems($page->stroke_data, $request->stroke_data));
         }
-        if ($request->has('footer_data')) {
-            $page->footer_data = $request->footer_data;
+        if ($request->has('text_data')) {
+            $page->text_data = json_encode(Page::mergeJsonItems($page->text_data, $request->text_data));
         }
-        $page->save(); // Salva a página
+        if ($request->has('image_data')) {
+            $page->image_data = json_encode(Page::mergeJsonItems($page->image_data, $request->image_data));
+        }
 
-        // BROADCAST: Avisa os outros utilizadores que a página mudou (Tempo Real)
-        // O método toOthers() garante que quem desenhou não receba o próprio traço de volta
-        broadcast(new PageUpdated($notebook->id, $page->id, $page->page_number, $newStrokes))->toOthers();
-        
+        $page->save();
+
+        // 📢 Notificar em tempo real os outros colaboradores
+        // IMPORTANTE: $request->stroke_data contém apenas os traços novos para o broadcast ser leve
+        broadcast(new PageUpdated($notebook->id, $page->id, $page->page_number, $request->stroke_data ?? []))->toOthers();
+
         return response()->json($page, 201);
     }
 }

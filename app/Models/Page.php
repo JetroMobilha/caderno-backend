@@ -32,4 +32,28 @@ class Page extends Model
     {
         return $this->belongsTo(Notebook::class);
     }
+
+    public static function mergeJsonItems($existingJson, $incomingArray) {
+        $existing = is_string($existingJson) ? json_decode($existingJson, true) : ($existingJson ?? []);
+        $map = [];
+
+        // 1. Indexar o que já existe pelo ID (UUID vindo do Flutter)
+        foreach ($existing as $item) {
+            if (isset($item['id'])) $map[$item['id']] = $item;
+        }
+
+        // 2. Fundir com o que está a chegar
+        foreach ($incomingArray as $item) {
+            if (isset($item['id'])) {
+                $id = $item['id'];
+                // Se o Flutter marcou como apagado, removemos da nuvem
+                if (!empty($item['is_deleted']) && $item['is_deleted'] == true) {
+                    unset($map[$id]);
+                } else {
+                    $map[$id] = $item;
+                }
+            }
+        }
+        return array_values($map);
+    }
 }
