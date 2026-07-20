@@ -1,5 +1,10 @@
 <?php
 
+/**
+ * 🌐 CONFIGURAÇÃO DE CORS PARA FLUTTER WEB (Laravel)
+ * Localização: config/cors.php
+ */
+
 return [
 
     /*
@@ -15,21 +20,23 @@ return [
     |
     */
 
-    'paths' => ['api/*', 'broadcasting/auth', 'sanctum/csrf-cookie'],
+    'paths' => ['api/*', 'sanctum/csrf-cookie', 'broadcasting/auth', 'storage/*'],
 
     'allowed_methods' => ['*'],
 
-    // 🌐 Permite que tanto o teu app nativo Windows como o servidor de desenvolvimento do Chrome acedam
-    'allowed_origins' => ['*'], 
+    // 🚀 ADICIONA O TEU DOMÍNIO OU IP ONDE O FLUTTER WEB ESTÁ HOSPEDADO
+    // Se estiveres em desenvolvimento, podes usar '*' para testes, mas
+    // especifica o IP em produção para segurança.
+    'allowed_origins' => ['*'],
 
     'allowed_origins_patterns' => [],
 
-    'allowed_headers' => ['Content-Type', 'X-Requested-With', 'Authorization', 'Accept'],
+    'allowed_headers' => ['*'],
 
     'exposed_headers' => [],
 
     'max_age' => 0,
 
-    'supports_credentials' => true,
+    'supports_credentials' => true, // 🔐 IMPORTANTE para o Sanctum/Autenticação
 
 ];
