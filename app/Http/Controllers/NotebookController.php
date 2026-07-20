@@ -182,4 +182,9 @@ class NotebookController extends Controller
 
         return response()->json(['message' => 'Acesso revogado com sucesso.']);
     }
+
+    public function uploadImage(Request $request, $id) {
+        $path = $request->file('image')->store('notebooks/images', 'public');
+        return response()->json(['url' => asset('storage/' . $path)]);
+    }
 }

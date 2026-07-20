@@ -67,7 +67,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ✍️ Páginas dos Cadernos
     Route::get('/notebooks/{notebook_id}/pages', [PageController::class, 'index']);
     Route::post('/notebooks/{notebook_id}/pages', [PageController::class, 'store']);
-
+    Route::post('/notebooks/{notebook_id}/upload-image', [NotebookController::class, 'uploadImage']);
     // 🎥 WebRTC (Colaboração em Tempo Real)
     Route::post('/notebooks/{notebook_id}/webrtc/signal', [WebRtcController::class, 'signal']);
 
