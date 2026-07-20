@@ -1,10 +1,21 @@
 # ====================================================================
-# 🚀 O PASSAPORTE CORS (Liberta as Imagens para o Flutter Web)
+# 🚀 O PASSAPORTE CORS + SQLITE WEB (Liberta APIs, Imagens e WASM)
 # ====================================================================
 <IfModule mod_headers.c>
     Header set Access-Control-Allow-Origin "*"
-    Header set Access-Control-Allow-Methods "GET, OPTIONS"
+    Header set Access-Control-Allow-Methods "GET, OPTIONS, POST, PUT, DELETE"
     Header set Access-Control-Allow-Headers "Origin, Content-Type, Accept, Authorization, X-Request-With"
+
+    # ⚠️ OBRIGATÓRIO PARA O SQLITE WEB (Libera SharedArrayBuffer e Service Worker):
+    Header set Cross-Origin-Opener-Policy "same-origin"
+    Header set Cross-Origin-Embedder-Policy "require-corp"
+</IfModule>
+
+# ====================================================================
+# 📦 GARANTE O FORMATO CORRETO DO BANCO DE DADOS WEBASSEMBLY
+# ====================================================================
+<IfModule mod_mime.c>
+    AddType application/wasm .wasm
 </IfModule>
 
 <IfModule mod_rewrite.c>
@@ -17,6 +28,12 @@
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # 🛑 TRAVA DE SEGURANÇA PARA O FLUTTER WEB:
+    # Entrega arquivos do app (.js, .wasm, .png, etc.) DIRETO DO HD sem acionar o PHP/Laravel
+    RewriteCond %{REQUEST_URI} \.(js|wasm|json|png|jpg|jpeg|gif|css|ico|map|svg|woff|woff2|ttf)$ [NC]
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
 
     # Redirect Trailing Slashes If Not A Folder...
     RewriteCond %{REQUEST_FILENAME} !-d
