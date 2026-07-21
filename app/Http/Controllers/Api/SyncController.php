@@ -18,7 +18,7 @@ class SyncController extends Controller
     // =========================================================================
     // 📚 1. SINCRONIZAÇÃO DE DISCIPLINAS
     // =========================================================================
-     public function push(Request $request)
+    public function push(Request $request)
     {
         $user = $request->user();
         $clientSubjects = $request->input('subjects', []);
@@ -137,7 +137,8 @@ class SyncController extends Controller
     // =========================================================================
     // ✍️ 3. SINCRONIZAÇÃO DE PÁGINAS (PRESERVA IMAGENS BASE64, STROKES E TEXT_DATA)
     // =========================================================================
-   public function pushPages(Request $request) {
+    public function pushPages(Request $request) 
+    {
         $user = $request->user();
         $clientPages = $request->input('pages', []);
         $syncedPages = [];
@@ -145,49 +146,98 @@ class SyncController extends Controller
         foreach ($clientPages as $pageData) {
             $page = Page::where('notebook_id', $pageData['notebook_id'])
                         ->where('page_number', $pageData['page_number'])
-                        ->first() ?? new Page(['notebook_id' => $pageData['notebook_id'], 'page_number' => $pageData['page_number']]);
+                        ->first() ?? new Page([
+                            'notebook_id' => $pageData['notebook_id'], 
+                            'page_number' => $pageData['page_number']
+                        ]);
 
-            // 🧠 FUSÃO INTELIGENTE DE DADOS
-            $newStrokes = is_string($pageData['stroke_data'] ?? []) ? json_decode($pageData['stroke_data'], true) : ($pageData['stroke_data'] ?? []);
-            $page->stroke_data = json_encode(Page::mergeJsonItems($page->stroke_data, $newStrokes));
+            // 1. Tratamento seguro dos arrays de desenho e texto
+            $newStrokes = $this->parseClientArray($pageData['stroke_data'] ?? []);
+            $page->stroke_data = json_encode(Page::mergeJsonItems($page->stroke_data, $newStrokes), JSON_UNESCAPED_UNICODE);
 
-            $newTexts = is_string($pageData['text_data'] ?? []) ? json_decode($pageData['text_data'], true) : ($pageData['text_data'] ?? []);
-            $page->text_data = json_encode(Page::mergeJsonItems($page->text_data, $newTexts));
+            $newTexts = $this->parseClientArray($pageData['text_data'] ?? []);
+            $page->text_data = json_encode(Page::mergeJsonItems($page->text_data, $newTexts), JSON_UNESCAPED_UNICODE);
 
-            // Imagens com Base64
-            $incomingImages = is_string($pageData['image_data'] ?? []) ? json_decode($pageData['image_data'], true) : ($pageData['image_data'] ?? []);
+            // 2. Imagens com conversão Base64 para ficheiro físico
+            $incomingImages = $this->parseClientArray($pageData['image_data'] ?? []);
             $processedImages = [];
+            
             foreach ($incomingImages as $img) {
                 if (!empty($img['image_base64'])) {
                     $decoded = base64_decode($img['image_base64']);
                     $filename = 'img_' . uniqid() . '.png';
                     Storage::disk('public')->put('notebook_images/' . $filename, $decoded);
+                    
                     $img['image_path'] = asset('storage/notebook_images/' . $filename);
-                    unset($img['image_base64']);
+                    unset($img['image_base64']); // Remove o payload pesado antes de salvar no banco
                 }
                 $processedImages[] = $img;
             }
-            $page->image_data = json_encode(Page::mergeJsonItems($page->image_data, $processedImages));
+            $page->image_data = json_encode(Page::mergeJsonItems($page->image_data, $processedImages), JSON_UNESCAPED_UNICODE);
 
+            // 3. Metadados da página (Com blindagem para colunas JSON do MySQL)
             $page->is_landscape = !empty($pageData['is_landscape']) ? 1 : 0;
             
-            // 🛡️ Blindagem para a coluna JSON 'header_data'
-            if (isset($pageData['header_data'])) {
-                // Se já for string ou array, garantimos que é codificado para JSON válido
-                $headerVal = is_string($pageData['header_data']) ? ['title' => $pageData['header_data']] : $pageData['header_data'];
-                $page->header_data = json_encode($headerVal, JSON_UNESCAPED_UNICODE);
-            } else {
-                $page->header_data = $page->header_data ?? json_encode(['title' => '']);
-            }
-
-            $page->extracted_text = $pageData['extracted_text'] ?? $page->extracted_text ?? '';
+            // Corrige o erro 3140 do MySQL e adiciona o footer_data que faltava
+            $page->header_data = $this->normalizeJsonColumn($pageData['header_data'] ?? null, ['title' => '']);
+            $page->footer_data = $this->normalizeJsonColumn($pageData['footer_data'] ?? null, ['title' => '']);
+            
+            $page->extracted_text = !empty($pageData['extracted_text']) ? (string) $pageData['extracted_text'] : null;
             $page->save();
 
-            $syncedPages[] = ['client_id' => $pageData['client_id'] ?? null, 'server_id' => $page->id, 'page_number' => $page->page_number];
+            $syncedPages[] = [
+                'client_id'   => $pageData['client_id'] ?? null, 
+                'server_id'   => $page->id, 
+                'page_number' => $page->page_number
+            ];
         }
 
         SyncRequested::dispatch($user->id);
-        return response()->json(['message' => 'Páginas salvas.', 'synced_pages' => $syncedPages]);
+        
+        return response()->json([
+            'message' => 'Páginas salvas.', 
+            'synced_pages' => $syncedPages
+        ]);
+    }
+
+    /**
+     * 🛡️ Garante que os dados (Header/Footer) se tornam sempre numa string JSON válida para o MySQL.
+     */
+    private function normalizeJsonColumn($data, $fallback = []): string 
+    {
+        if (is_null($data) || $data === '') {
+            return json_encode($fallback, JSON_UNESCAPED_UNICODE);
+        }
+
+        // Se o Laravel já converteu para array ou objeto via Request
+        if (is_array($data) || is_object($data)) {
+            return json_encode($data, JSON_UNESCAPED_UNICODE);
+        }
+
+        if (is_string($data)) {
+            // Tenta ver se a string já é um JSON válido
+            $decoded = json_decode($data, true);
+            if (json_last_error() === JSON_ERROR_NONE && (is_array($decoded) || is_object($decoded))) {
+                return json_encode($decoded, JSON_UNESCAPED_UNICODE);
+            }
+            // Se for texto plano (ex: "Folha 1"), transforma num objeto JSON válido
+            return json_encode(['title' => trim($data)], JSON_UNESCAPED_UNICODE);
+        }
+
+        return json_encode($fallback, JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * 🛡️ Converte strings JSON que venham do Flutter em arrays PHP de forma segura.
+     */
+    private function parseClientArray($data): array 
+    {
+        if (is_array($data)) return $data;
+        if (is_string($data)) {
+            $decoded = json_decode($data, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+        return [];
     }
 
     public function pullPages(Request $request)
