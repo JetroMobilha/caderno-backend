@@ -13,42 +13,41 @@ class AIAssistantController extends Controller
 {
     /**
      * Pesquisa textual rápida na base de dados.
-     * Nota: Substituído o LIKE por whereFullText para melhor performance e relevância.
-     */
-   public function search(Request $request): JsonResponse
-{
-    $validated = $request->validate([
-        'query_text' => 'required|string|min:2|max:100',
-        'notebook_id' => 'nullable|integer|exists:notebooks,id'
-    ]);
-
-    $userQuery = $validated['query_text'];
-    $notebookId = $validated['notebook_id'] ?? null;
-
-    // 1. Expansão com IA (do nosso passo anterior)
-    $expandedKeywords = $this->expandQueryForMySQL($userQuery);
-
-    // 2. Junção de todos os termos (os do utilizador + os da IA) para destacar tudo o que for relevante
-    $allTermsToHighlight = $userQuery . ' ' . $expandedKeywords;
-
-    $results = Page::query()
-        ->select('id', 'notebook_id', 'page_number', 'extracted_text')
-        ->whereFullText('extracted_text', $expandedKeywords, ['mode' => 'boolean'])
-        ->when($notebookId, fn($q) => $q->where('notebook_id', $notebookId))
-        ->limit(10)
-        ->get()
-        ->map(fn($page) => [
-            'id' => $page->id,
-            'notebook_id' => $page->notebook_id,
-            'page_number' => $page->page_number,
-            // AQUI ESTÁ A MÁGICA:
-            'snippet' => $this->generateHighlightedSnippet($page->extracted_text, $allTermsToHighlight),
+    */
+    public function search(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'query_text' => 'required|string|min:2|max:200',
+            'notebook_id' => 'nullable|integer|exists:notebooks,id'
         ]);
 
-    return response()->json([
-        'results' => $results
-    ]);
-}
+        $userQuery = $validated['query_text'];
+        $notebookId = $validated['notebook_id'] ?? null;
+
+        // 1. Expansão com IA (do nosso passo anterior)
+        $expandedKeywords = $this->expandQueryForMySQL($userQuery);
+
+        // 2. Junção de todos os termos (os do utilizador + os da IA) para destacar tudo o que for relevante
+        $allTermsToHighlight = $userQuery . ' ' . $expandedKeywords;
+
+        $results = Page::query()
+            ->select('id', 'notebook_id', 'page_number', 'extracted_text')
+            ->whereFullText('extracted_text', $expandedKeywords, ['mode' => 'boolean'])
+            ->when($notebookId, fn($q) => $q->where('notebook_id', $notebookId))
+            ->limit(20)
+            ->get()
+            ->map(fn($page) => [
+                'id' => $page->id,
+                'notebook_id' => $page->notebook_id,
+                'page_number' => $page->page_number,
+                // AQUI ESTÁ A MÁGICA:
+                'snippet' => $this->generateHighlightedSnippet($page->extracted_text, $allTermsToHighlight),
+            ]);
+
+        return response()->json([
+            'results' => $results
+        ]);
+    }
 
     /**
      * Usa IA para transformar a pergunta numa string otimizada para o Full-Text do MySQL.
@@ -140,52 +139,52 @@ class AIAssistantController extends Controller
     }
 
     /**
- * Gera um trecho de texto (snippet) centrado na palavra encontrada 
- * e destaca os termos com tags <mark> sem quebrar acentos ou segurança HTML.
- */
-private function generateHighlightedSnippet(string $text, string $keywordsString, int $maxLength = 220): string
-{
-    // 1. Extrair palavras com 3 ou mais letras (ignora "de", "em", "a", etc.)
-    $words = array_filter(
-        explode(' ', preg_replace('/[^a-zA-Z0-9\p{L}\s]/u', '', $keywordsString)),
-        fn($w) => mb_strlen(trim($w)) >= 3
-    );
+    * Gera um trecho de texto (snippet) centrado na palavra encontrada 
+    * e destaca os termos com tags <mark> sem quebrar acentos ou segurança HTML.
+    */
+    private function generateHighlightedSnippet(string $text, string $keywordsString, int $maxLength = 220): string
+    {
+        // 1. Extrair palavras com 3 ou mais letras (ignora "de", "em", "a", etc.)
+        $words = array_filter(
+            explode(' ', preg_replace('/[^a-zA-Z0-9\p{L}\s]/u', '', $keywordsString)),
+            fn($w) => mb_strlen(trim($w)) >= 3
+        );
 
-    if (empty($words)) {
-        return e(Str::limit($text, $maxLength));
-    }
-
-    // 2. Ordenar da palavra maior para a menor (evita que "carro" substitua dentro de "carroçaria" primeiro)
-    usort($words, fn($a, $b) => mb_strlen($b) <=> mb_strlen($a));
-
-    // 3. SMART SNIPPET: Encontrar a posição da 1ª palavra presente no texto
-    $firstPos = null;
-    foreach ($words as $word) {
-        $pos = mb_stripos($text, $word);
-        if ($pos !== false) {
-            $firstPos = $pos;
-            break;
+        if (empty($words)) {
+            return e(Str::limit($text, $maxLength));
         }
+
+        // 2. Ordenar da palavra maior para a menor (evita que "carro" substitua dentro de "carroçaria" primeiro)
+        usort($words, fn($a, $b) => mb_strlen($b) <=> mb_strlen($a));
+
+        // 3. SMART SNIPPET: Encontrar a posição da 1ª palavra presente no texto
+        $firstPos = null;
+        foreach ($words as $word) {
+            $pos = mb_stripos($text, $word);
+            if ($pos !== false) {
+                $firstPos = $pos;
+                break;
+            }
+        }
+
+        // 4. Centrar o corte do texto: apanha 60 caracteres ANTES da palavra e o resto DEPOIS
+        if ($firstPos !== null && $firstPos > 60) {
+            $start = max(0, $firstPos - 60);
+            $snippet = '...' . mb_substr($text, $start, $maxLength) . '...';
+        } else {
+            $snippet = Str::limit($text, $maxLength);
+        }
+
+        // 5. SEGURANÇA XSS: Escapar qualquer HTML malicioso que exista no texto extraído do PDF/página ANTES de injetar o nosso HTML
+        $safeSnippet = e($snippet);
+
+        // 6. Criar Regex com Limites de Palavra Unicode (\P{L}) para o português
+        $escapedWords = array_map('preg_quote', $words);
+        // (?<=^|\P{L}) garante que antes da palavra há um início de frase ou algo que não é letra (espaço, ponto)
+        // (?=\P{L}|$) garante que depois há algo que não é letra
+        $pattern = '/(?<=^|\P{L})(' . implode('|', $escapedWords) . ')(?=\P{L}|$)/iu';
+
+        // 7. Substituir injetando a tag <mark>, mas mantendo o texto original ($1 preserva maiúsculas e acentos)
+        return preg_replace($pattern, '<mark class="bg-yellow-200 text-gray-900 font-semibold rounded px-1">$1</mark>', $safeSnippet);
     }
-
-    // 4. Centrar o corte do texto: apanha 60 caracteres ANTES da palavra e o resto DEPOIS
-    if ($firstPos !== null && $firstPos > 60) {
-        $start = max(0, $firstPos - 60);
-        $snippet = '...' . mb_substr($text, $start, $maxLength) . '...';
-    } else {
-        $snippet = Str::limit($text, $maxLength);
-    }
-
-    // 5. SEGURANÇA XSS: Escapar qualquer HTML malicioso que exista no texto extraído do PDF/página ANTES de injetar o nosso HTML
-    $safeSnippet = e($snippet);
-
-    // 6. Criar Regex com Limites de Palavra Unicode (\P{L}) para o português
-    $escapedWords = array_map('preg_quote', $words);
-    // (?<=^|\P{L}) garante que antes da palavra há um início de frase ou algo que não é letra (espaço, ponto)
-    // (?=\P{L}|$) garante que depois há algo que não é letra
-    $pattern = '/(?<=^|\P{L})(' . implode('|', $escapedWords) . ')(?=\P{L}|$)/iu';
-
-    // 7. Substituir injetando a tag <mark>, mas mantendo o texto original ($1 preserva maiúsculas e acentos)
-    return preg_replace($pattern, '<mark class="bg-yellow-200 text-gray-900 font-semibold rounded px-1">$1</mark>', $safeSnippet);
-}
 }

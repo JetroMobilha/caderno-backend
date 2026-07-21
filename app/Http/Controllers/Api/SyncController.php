@@ -37,9 +37,9 @@ class SyncController extends Controller
             $subject = Subject::updateOrCreate(
                 ['user_id' => $user->id, 'id' => $subjectData['server_id'] ?? null],
                 [
-                    'name'  => trim($subjectData['name']),
-                    'color' => $subjectData['color'],
-                    'icon'  => $subjectData['icon'],
+                    'name'  => trim($subjectData['name'] ?? 'Nova Disciplina'),
+                    'color' => $subjectData['color'] ?? '#000000',
+                    'icon'  => $subjectData['icon'] ?? 'default-icon',
                 ]
             );
 
@@ -89,14 +89,15 @@ class SyncController extends Controller
             $notebook = Notebook::updateOrCreate(
                 ['id' => $notebookData['server_id'] ?? null],
                 [
-                    'subject_id'  => $notebookData['subject_id'],
-                    'title'       => trim($notebookData['title']),
-                    'cover_type'  => $notebookData['cover_type'] ?? 'color',
-                    'color'       => $notebookData['color'],
-                    'line_type'   => $notebookData['line_type'],
+                    'subject_id'  => $notebookData['subject_id'] ?? null,
+                    'title'       => trim($notebookData['title'] ?? 'Sem Título'),
+                    'cover_type'  => $notebookData['cover_type'] ?? null,
+                    'color'       => $notebookData['color'] ?? '#3b82f6', // Cor por defeito caso falhe
+                    'line_type'   => $notebookData['line_type'] ?? null, // <-- CORREÇÃO PRINCIPAL
                     'paper_size'  => $notebookData['paper_size'] ?? 'A4',
                 ]
             );
+
             $syncedNotebooks[] = ['client_id' => $notebookData['id'], 'server_id' => $notebook->id];
         }
 
