@@ -31,25 +31,6 @@
 
   <title>caderno_digital_app</title>
   <link rel="manifest" href="manifest.json">
-
-  <!-- 🛡️ DESBLOQUEIO DE SQLITE WEB -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', function () {
-        // Ajuda a limpar e sincronizar o SharedWorker do SQLite
-        if (window.SharedWorker) {
-          console.log('📖 SharedWorker detectado. Preparando SQLite...');
-        }
-        navigator.serviceWorker.getRegistrations().then(function (registrations) {
-          for (let registration of registrations) {
-            if (registration.active && registration.active.scriptURL.includes('sqflite_sw.js')) {
-              console.log('♻️ SQLite Service Worker ativo.');
-            }
-          }
-        });
-      });
-    }
-  </script>
 </head>
 <body>
   <!--
