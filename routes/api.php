@@ -12,6 +12,7 @@ use App\Http\Controllers\PageController;
 use App\Http\Controllers\WebRtcController;
 use App\Http\Controllers\Api\SyncController;
 use App\Http\Controllers\Api\MarketplaceController;
+use App\Http\Controllers\AIAssistantController;
 
 /*
 |--------------------------------------------------------------------------
@@ -89,4 +90,8 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // Adquirir (Clonar) um caderno para a conta do estudante
     Route::post('/marketplace/notebooks/{id}/acquire', [MarketplaceController::class, 'acquire']);
+
+    // 🧠 IA Assistant
+    Route::post('/ai/search', [AIAssistantController::class, 'search']);
+    Route::post('/ai/summarize', [AIAssistantController::class, 'summarize']);
 });

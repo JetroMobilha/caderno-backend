@@ -8,17 +8,17 @@ use Illuminate\Database\Eloquent\Model;
 class Page extends Model
 {
     use HasFactory;
-
     protected $fillable = [
-        'notebook_id', 
-        'page_number', 
-        'is_landscape',  
-        'header_data',
-        'footer_data',
-        'stroke_data',
-        'text_data',     
-        'image_data',    
-    ];
+    'notebook_id', 
+    'page_number', 
+    'is_landscape',  
+    'header_data',
+    'footer_data',
+    'extracted_text',  
+    'stroke_data',
+    'text_data',     
+    'image_data',    
+];
  
     protected $casts = [
         'is_landscape' => 'boolean', 

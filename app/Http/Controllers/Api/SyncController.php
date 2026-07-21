@@ -170,6 +170,7 @@ class SyncController extends Controller
 
             $page->is_landscape = $pageData['is_landscape'] ?? $page->is_landscape;
             $page->header_data = $pageData['header_data'] ?? $page->header_data;
+            $page->extracted_text = $pageData['extracted_text'] ?? $page->extracted_text;
             $page->save();
 
             $syncedPages[] = ['client_id' => $pageData['client_id'] ?? null, 'server_id' => $page->id, 'page_number' => $page->page_number];
