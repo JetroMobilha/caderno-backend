@@ -86,15 +86,15 @@ class SyncController extends Controller
                 continue;
             }
 
-            $notebook = Notebook::updateOrCreate(
+           $notebook = Notebook::updateOrCreate(
                 ['id' => $notebookData['server_id'] ?? null],
                 [
                     'subject_id'  => $notebookData['subject_id'] ?? null,
-                    'title'       => trim($notebookData['title'] ?? 'Sem Título'),
-                    'cover_type'  => $notebookData['cover_type'] ?? null,
-                    'color'       => $notebookData['color'] ?? '#3b82f6', // Cor por defeito caso falhe
-                    'line_type'   => $notebookData['line_type'] ?? null, // <-- CORREÇÃO PRINCIPAL
-                    'paper_size'  => $notebookData['paper_size'] ?? 'A4',
+                    'title'       => !empty($notebookData['title']) ? trim($notebookData['title']) : 'Sem Título',
+                    'cover_type'  => !empty($notebookData['cover_type']) ? $notebookData['cover_type'] : 'color',
+                    'color'       => !empty($notebookData['color']) ? $notebookData['color'] : '#3b82f6',
+                    'line_type'   => !empty($notebookData['line_type']) ? $notebookData['line_type'] : 'lines',
+                    'paper_size'  => !empty($notebookData['paper_size']) ? $notebookData['paper_size'] : 'A4',
                 ]
             );
 
