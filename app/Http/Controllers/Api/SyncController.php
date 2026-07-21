@@ -169,9 +169,18 @@ class SyncController extends Controller
             }
             $page->image_data = json_encode(Page::mergeJsonItems($page->image_data, $processedImages));
 
-            $page->is_landscape = $pageData['is_landscape'] ?? $page->is_landscape;
-            $page->header_data = $pageData['header_data'] ?? $page->header_data;
-            $page->extracted_text = $pageData['extracted_text'] ?? $page->extracted_text;
+            $page->is_landscape = !empty($pageData['is_landscape']) ? 1 : 0;
+            
+            // 🛡️ Blindagem para a coluna JSON 'header_data'
+            if (isset($pageData['header_data'])) {
+                // Se já for string ou array, garantimos que é codificado para JSON válido
+                $headerVal = is_string($pageData['header_data']) ? ['title' => $pageData['header_data']] : $pageData['header_data'];
+                $page->header_data = json_encode($headerVal, JSON_UNESCAPED_UNICODE);
+            } else {
+                $page->header_data = $page->header_data ?? json_encode(['title' => '']);
+            }
+
+            $page->extracted_text = $pageData['extracted_text'] ?? $page->extracted_text ?? '';
             $page->save();
 
             $syncedPages[] = ['client_id' => $pageData['client_id'] ?? null, 'server_id' => $page->id, 'page_number' => $page->page_number];
