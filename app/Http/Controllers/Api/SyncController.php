@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ProcessPageOcr;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -153,7 +154,8 @@ class SyncController extends Controller
 
             // 1. Tratamento seguro dos arrays de desenho e texto
             $newStrokes = $this->parseClientArray($pageData['stroke_data'] ?? []);
-            $page->stroke_data = json_encode(Page::mergeJsonItems($page->stroke_data, $newStrokes), JSON_UNESCAPED_UNICODE);
+            $mergedStrokes = Page::mergeJsonItems($page->stroke_data, $newStrokes);
+            $page->stroke_data = json_encode($mergedStrokes, JSON_UNESCAPED_UNICODE);
 
             $newTexts = $this->parseClientArray($pageData['text_data'] ?? []);
             $page->text_data = json_encode(Page::mergeJsonItems($page->text_data, $newTexts), JSON_UNESCAPED_UNICODE);
@@ -184,6 +186,11 @@ class SyncController extends Controller
             
             $page->extracted_text = !empty($pageData['extracted_text']) ? (string) $pageData['extracted_text'] : null;
             $page->save();
+
+            if (!empty($newStrokes) && empty($page->extracted_text)) {
+                ProcessPageOcr::dispatch($page->id, $pageData['language'] ?? null)
+                    ->onQueue('ocr');
+            }
 
             $syncedPages[] = [
                 'client_id'   => $pageData['client_id'] ?? null, 

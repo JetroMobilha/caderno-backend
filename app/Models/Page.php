@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class Page extends Model
 {
@@ -17,15 +18,17 @@ class Page extends Model
     'extracted_text',  
     'stroke_data',
     'text_data',     
+    'ocr_data',
     'image_data',    
 ];
- 
+  
     protected $casts = [
         'is_landscape' => 'boolean', 
         'stroke_data'  => 'array',
         'text_data'    => 'array',    
+        'ocr_data'     => 'array',
         'image_data'   => 'array',    
-         
+          
     ];
 
     public function notebook()
@@ -52,5 +55,54 @@ class Page extends Model
             }
         }
         return array_values($map);
+    }
+
+    public function buildOcrTextEntry(string $recognizedText, array $result = []): array
+    {
+        $context = $this->buildOcrContext();
+
+        $entry = [
+            'id' => (string) Str::uuid(),
+            'type' => 'ocr',
+            'text' => trim($recognizedText),
+            'engine' => $result['engine'] ?? 'tesseract',
+            'language' => $result['language'] ?? null,
+            'created_at' => now()->toISOString(),
+            'context' => $context,
+            'subject_id' => $context['subject']['id'] ?? null,
+            'notebook_id' => $context['notebook']['id'] ?? null,
+            'page_id' => $context['page']['id'] ?? null,
+            'page_number' => $context['page']['number'] ?? null,
+        ];
+
+        return array_filter($entry, static fn ($value) => $value !== null && $value !== '');
+    }
+
+    public function buildOcrContext(): array
+    {
+        $context = [];
+        $notebook = $this->notebook;
+
+        if ($notebook) {
+            $context['notebook'] = [
+                'id' => $notebook->id,
+                'title' => $notebook->title,
+            ];
+
+            $subject = $notebook->subject;
+            if ($subject) {
+                $context['subject'] = [
+                    'id' => $subject->id,
+                    'name' => $subject->name,
+                ];
+            }
+        }
+
+        $context['page'] = [
+            'id' => $this->id,
+            'number' => $this->page_number,
+        ];
+
+        return array_filter($context, static fn ($value) => $value !== null && $value !== '');
     }
 }
