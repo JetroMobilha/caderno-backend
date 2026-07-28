@@ -31,4 +31,14 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'ocr' => [
+        'tesseract_path' => env('OCR_TESSERACT_PATH', 'tesseract'),
+        'node_path' => env('OCR_NODE_PATH', 'node'),
+        'tessdata_dir' => env('OCR_TESSDATA_DIR'),
+        'queue_name' => env('OCR_QUEUE_NAME', 'ocr'),
+        'queue_tries' => (int) env('OCR_QUEUE_TRIES', 3),
+        'queue_timeout' => (int) env('OCR_QUEUE_TIMEOUT', 600),
+        'queue_workers' => (int) env('OCR_QUEUE_WORKERS', 2),
+    ],
+
 ];

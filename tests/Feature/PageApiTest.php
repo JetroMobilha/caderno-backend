@@ -7,8 +7,10 @@ use App\Models\Subject;
 use App\Models\User;
 use App\Models\Page;
 use App\Events\PageUpdated;
+use App\Services\HandwritingRecognitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
+use Mockery;
 use Tests\TestCase;
 
 class PageApiTest extends TestCase
@@ -105,5 +107,42 @@ class PageApiTest extends TestCase
                    $event->pageNumber === 1 &&
                    $event->newStrokes === $updatePayload['stroke_data'];
         });
+    }
+
+    public function test_sync_push_can_recognize_strokes_and_store_text()
+    {
+        $service = Mockery::mock(HandwritingRecognitionService::class);
+        $service->shouldReceive('recognizeFromStrokes')
+            ->once()
+            ->andReturn([
+                'text' => 'Texto reconhecido automaticamente',
+                'engine' => 'tesseract',
+                'language' => 'por',
+            ]);
+
+        $this->app->instance(HandwritingRecognitionService::class, $service);
+
+        $response = $this->actingAs($this->user)
+            ->postJson('/api/sync/pages/push', [
+                'pages' => [[
+                    'notebook_id' => $this->notebook->id,
+                    'page_number' => 1,
+                    'stroke_data' => [[
+                        'points' => [
+                            ['x' => 10, 'y' => 20],
+                            ['x' => 30, 'y' => 50],
+                        ],
+                    ]],
+                ]],
+            ]);
+
+        $response->assertOk();
+
+        $page = Page::where('notebook_id', $this->notebook->id)
+            ->where('page_number', 1)
+            ->firstOrFail();
+
+        $this->assertSame('Texto reconhecido automaticamente', $page->extracted_text);
+        $this->assertSame('ocr', $page->ocr_data[0]['type']);
     }
 }

@@ -13,6 +13,7 @@ use App\Http\Controllers\WebRtcController;
 use App\Http\Controllers\Api\SyncController;
 use App\Http\Controllers\Api\MarketplaceController;
 use App\Http\Controllers\AIAssistantController;
+use App\Http\Controllers\HandwritingRecognitionController;
 
 /*
 |--------------------------------------------------------------------------
@@ -94,4 +95,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // 🧠 IA Assistant
     Route::post('/ai/search', [AIAssistantController::class, 'search']);
     Route::post('/ai/summarize', [AIAssistantController::class, 'summarize']);
+
+    // ✍️ Reconhecimento de escrita manual (gratuito, local)
+    Route::post('/handwriting/recognize', [HandwritingRecognitionController::class, 'recognize']);
 });
