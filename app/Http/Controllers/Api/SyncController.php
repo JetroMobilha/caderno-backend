@@ -26,6 +26,7 @@ class SyncController extends Controller
         $syncedSubjects = [];
 
         foreach ($clientSubjects as $subjectData) {
+            
             if (!empty($subjectData['is_deleted']) && $subjectData['is_deleted'] == 1) {
                 if (!empty($subjectData['server_id'])) {
                     $subject = Subject::where('user_id', $user->id)->where('id', $subjectData['server_id'])->first();
@@ -36,11 +37,14 @@ class SyncController extends Controller
             }
 
             $subject = Subject::updateOrCreate(
-                ['user_id' => $user->id, 'id' => $subjectData['server_id'] ?? null],
                 [
-                    'name'  => trim($subjectData['name'] ?? 'Nova Disciplina'),
-                    'color' => $subjectData['color'] ?? '#000000',
-                    'icon'  => $subjectData['icon'] ?? 'default-icon',
+                    'client_id' => $subjectData['client_id'] // 🆔 Chave única gerada no Flutter
+                ],
+                [
+                    'user_id' => $user->id,
+                    'name'    => trim($subjectData['name'] ?? 'Nova Disciplina'),
+                    'color'   => $subjectData['color'] ?? '#000000',
+                    'icon'    => $subjectData['icon'] ?? 'default-icon',
                 ]
             );
 
@@ -78,6 +82,7 @@ class SyncController extends Controller
         $syncedNotebooks = [];
 
         foreach ($clientNotebooks as $notebookData) {
+            
             if (!empty($notebookData['is_deleted']) && $notebookData['is_deleted'] == 1) {
                 if (!empty($notebookData['server_id'])) {
                     $notebook = Notebook::where('id', $notebookData['server_id'])->first();
@@ -86,8 +91,9 @@ class SyncController extends Controller
                 continue;
             }
 
-           $notebook = Notebook::updateOrCreate(
-                ['id' => $notebookData['server_id'] ?? null],
+           
+            $notebook = Notebook::updateOrCreate(
+                ['client_id' => $notebookData['client_id']], // Chave de busca (UUID do Flutter)
                 [
                     'subject_id'  => $notebookData['subject_id'] ?? null,
                     'title'       => !empty($notebookData['title']) ? trim($notebookData['title']) : '', // 🚀 Permite título vazio

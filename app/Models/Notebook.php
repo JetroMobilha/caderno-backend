@@ -11,6 +11,7 @@ class Notebook extends Model
     use HasFactory,SoftDeletes;
 
     protected $fillable = [
+        'client_id',
         'subject_id',
         'title', 
         'cover_type',
@@ -19,7 +20,7 @@ class Notebook extends Model
         'line_type',
         'paper_size',
     ];
-
+    
     // Um caderno pertence a uma disciplina
     public function subject() {
         return $this->belongsTo(Subject::class);
