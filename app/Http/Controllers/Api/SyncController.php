@@ -25,35 +25,44 @@ class SyncController extends Controller
         $clientSubjects = $request->input('subjects', []);
         $syncedSubjects = [];
 
-        foreach ($clientSubjects as $subjectData) {
-            
-            if (!empty($subjectData['is_deleted']) && $subjectData['is_deleted'] == 1) {
-                if (!empty($subjectData['server_id'])) {
-                    $subject = Subject::where('user_id', $user->id)->where('id', $subjectData['server_id'])->first();
-                    if ($subject) $subject->delete();
-                }
-                $syncedSubjects[] = ['client_id' => $subjectData['id'], 'server_id' => $subjectData['server_id'] ?? null];
+        foreach ($clientSubjects as $data) {
+            // 🗑️ Deleção (Igual)
+            if (!empty($data['is_deleted']) && $data['is_deleted'] == 1) {
+                Subject::where('user_id', $user->id)->where('client_id', $data['client_id'])->delete();
                 continue;
             }
 
-            $subject = Subject::updateOrCreate(
-                [
-                    'client_id' => $subjectData['client_id'] // 🆔 Chave única gerada no Flutter
-                ],
-                [
-                    'user_id' => $user->id,
-                    'name'    => trim($subjectData['name'] ?? 'Nova Disciplina'),
-                    'color'   => $subjectData['color'] ?? '#000000',
-                    'icon'    => $subjectData['icon'] ?? 'default-icon',
-                ]
-            );
+            // 🎯 BUSCA HÍBRIDA: Tenta ID do Servidor primeiro, depois o UUID
+            $subject = null;
+            if (!empty($data['server_id'])) {
+                $subject = Subject::where('user_id', $user->id)->find($data['server_id']);
+            }
+            if (!$subject) {
+                $subject = Subject::where('user_id', $user->id)->where('client_id', $data['client_id'])->first();
+            }
 
-            $syncedSubjects[] = ['client_id' => $subjectData['id'], 'server_id' => $subject->id];
+            // Se encontrou, atualiza. Se não, cria.
+            if ($subject) {
+                $subject->update([
+                    'client_id' => $data['client_id'], // 🚀 Migra o UUID se estiver NULL
+                    'name'      => trim($data['name'] ?? $subject->name),
+                    'color'     => $data['color'] ?? $subject->color,
+                    'icon'      => $data['icon'] ?? $subject->icon,
+                ]);
+            } else {
+                $subject = Subject::create([
+                    'user_id'   => $user->id,
+                    'client_id' => $data['client_id'],
+                    'name'      => trim($data['name'] ?? 'Nova Disciplina'),
+                    'color'     => $data['color'] ?? '#000000',
+                    'icon'      => $data['icon'] ?? 'default-icon',
+                ]);
+            }
+
+            $syncedSubjects[] = ['client_id' => $data['client_id'], 'server_id' => $subject->id];
         }
 
-        if($syncedSubjects) SyncRequested::dispatch($user->id);
-
-        return response()->json(['message' => 'Disciplinas processadas.', 'synced_subjects' => $syncedSubjects]);
+        return response()->json(['message' => 'OK', 'synced_subjects' => $syncedSubjects]);
     }
 
     public function pull(Request $request)
@@ -75,40 +84,46 @@ class SyncController extends Controller
     // =========================================================================
     // 📓 2. SINCRONIZAÇÃO DE CADERNOS (MONETIZAÇÃO + VERIFICAÇÃO DE ROLES)
     // =========================================================================
-    public function pushNotebooks(Request $request)
+     public function pushNotebooks(Request $request)
     {
         $user = $request->user();
-        $clientNotebooks = $request->input('notebooks', []);
         $syncedNotebooks = [];
 
-        foreach ($clientNotebooks as $notebookData) {
-            
-            if (!empty($notebookData['is_deleted']) && $notebookData['is_deleted'] == 1) {
-                if (!empty($notebookData['server_id'])) {
-                    $notebook = Notebook::where('id', $notebookData['server_id'])->first();
-                    if ($notebook && $notebook->subject->user_id == $user->id) $notebook->delete();
-                }
+        foreach ($request->input('notebooks', []) as $data) {
+            // 🗑️ Deleção (Igual)
+            if (!empty($data['is_deleted']) && $data['is_deleted'] == 1) {
+                $n = Notebook::where('client_id', $data['client_id'])->first();
+                if ($n && $n->subject->user_id == $user->id) $n->delete();
                 continue;
             }
 
-           
-            $notebook = Notebook::updateOrCreate(
-                ['client_id' => $notebookData['client_id']], // Chave de busca (UUID do Flutter)
-                [
-                    'subject_id'  => $notebookData['subject_id'] ?? null,
-                    'title'       => !empty($notebookData['title']) ? trim($notebookData['title']) : '', // 🚀 Permite título vazio
-                    'cover_type'  => !empty($notebookData['cover_type']) ? $notebookData['cover_type'] : 'color',
-                    'color'       => !empty($notebookData['color']) ? $notebookData['color'] : '#3b82f6',
-                    'line_type'   => !empty($notebookData['line_type']) ? $notebookData['line_type'] : 'ruled', // 🚀 CORRIGIDO: Flutter usa 'ruled'
-                    'paper_size'  => !empty($notebookData['paper_size']) ? $notebookData['paper_size'] : 'A4',
-                ]
-            );
+            // 🎯 BUSCA HÍBRIDA
+            $notebook = null;
+            if (!empty($data['server_id'])) {
+                $notebook = Notebook::find($data['server_id']);
+            }
+            if (!$notebook) {
+                $notebook = Notebook::where('client_id', $data['client_id'])->first();
+            }
 
-            $syncedNotebooks[] = ['client_id' => $notebookData['id'], 'server_id' => $notebook->id];
+            $updateData = [
+                'client_id'  => $data['client_id'], // 🚀 Migra o UUID
+                'subject_id' => $data['subject_id'],
+                'title'      => $data['title'] ?? '',
+                'line_type'  => $data['line_type'] ?? 'ruled',
+                'paper_size' => $data['paper_size'] ?? 'A4',
+            ];
+
+            if ($notebook) {
+                $notebook->update($updateData);
+            } else {
+                $notebook = Notebook::create($updateData);
+            }
+
+            $syncedNotebooks[] = ['client_id' => $data['client_id'], 'server_id' => $notebook->id];
         }
 
-        if($syncedNotebooks) SyncRequested::dispatch($user->id);
-        return response()->json(['message' => 'Cadernos processados.', 'synced_notebooks' => $syncedNotebooks]);
+        return response()->json(['message' => 'OK', 'synced_notebooks' => $syncedNotebooks]);
     }
 
 
@@ -188,8 +203,18 @@ class SyncController extends Controller
             $page->save();
 
             // Despacha o Job de OCR se houver novos traços e o texto ainda não foi extraído.
-            if (!empty($newStrokes) && empty($page->extracted_text)) {
-                ProcessPageOcr::dispatch($page->id);
+            try {
+                if (!empty($newStrokes) && empty($page->extracted_text)) {
+                    ProcessPageOcr::dispatch($page->id);
+                }
+            } catch (\Throwable $e) {
+                // Protege contra quebra da sincronização e regista no Log
+                Log::error('Erro ao despachar o Job ProcessPageOcr.', [
+                    'page_id' => $page->id ?? null,
+                    'erro' => $e->getMessage(),
+                    'linha' => $e->getLine(),
+                    'arquivo' => $e->getFile()
+                ]);
             }
 
             $syncedPages[] = [
