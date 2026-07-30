@@ -187,6 +187,11 @@ class SyncController extends Controller
             $page->extracted_text = $pageData['extracted_text'] ?? null;
             $page->save();
 
+            // Despacha o Job de OCR se houver novos traços e o texto ainda não foi extraído.
+            if (!empty($newStrokes) && empty($page->extracted_text)) {
+                ProcessPageOcr::dispatch($page->id);
+            }
+
             $syncedPages[] = [
                 'client_id'   => $pageData['client_id'] ?? null,
                 'server_id'   => $page->id,

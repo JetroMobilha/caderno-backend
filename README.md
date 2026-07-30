@@ -59,13 +59,33 @@ O backend já inclui um fluxo para reconhecimento de texto a partir dos traços 
 
 ### Como usar
 
-1. Instale o Tesseract no servidor (ou no ambiente de desenvolvimento):
-   - Windows: descarregue o instalador oficial e adicione o binário ao `PATH`.
-   - Linux: instale os pacotes abaixo no servidor onde o backend vai correr:
-```bash
-sudo apt-get update
-sudo apt-get install -y tesseract-ocr tesseract-ocr-por nodejs npm
-```
+1. Instale as dependências do servidor:
+   O Tesseract é o motor de OCR, e o Node.js é usado por um script auxiliar para processar os dados da escrita.
+
+   <details>
+   <summary>Instruções para Debian / Ubuntu (Recomendado para produção)</summary>
+
+   Execute os seguintes comandos no terminal do seu servidor:
+
+   ```bash
+   # 1. Atualize a lista de pacotes
+   sudo apt update
+
+   # 2. Instale o Tesseract, o pacote de língua portuguesa, Node.js e NPM
+   sudo apt install -y tesseract-ocr tesseract-ocr-por nodejs npm
+
+   # 3. (Opcional) Verifique a instalação
+   tesseract --version
+   ```
+   </details>
+
+   <details>
+   <summary>Instruções para Windows (Ambiente de desenvolvimento)</summary>
+
+   - **Tesseract:** Faça o download do instalador oficial a partir do [repositório da UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki). Durante a instalação, **certifique-se de marcar o pacote de língua portuguesa** e adicione o diretório de instalação à variável de ambiente `PATH`.
+   - **Node.js:** Descarregue e instale a partir do [site oficial do Node.js](https://nodejs.org/).
+
+   </details>
 
 2. Instale as dependências do helper Node no servidor do projeto:
 ```bash
