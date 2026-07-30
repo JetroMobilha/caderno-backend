@@ -28,7 +28,8 @@ class Page extends Model
         'text_data'    => 'array',    
         'ocr_data'     => 'array',
         'image_data'   => 'array',    
-          
+        'header_data'  => 'array',
+        'footer_data'  => 'array',
     ];
 
     public function notebook()

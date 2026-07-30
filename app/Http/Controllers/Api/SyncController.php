@@ -81,7 +81,6 @@ class SyncController extends Controller
             if (!empty($notebookData['is_deleted']) && $notebookData['is_deleted'] == 1) {
                 if (!empty($notebookData['server_id'])) {
                     $notebook = Notebook::where('id', $notebookData['server_id'])->first();
-                    // Só apaga se for o dono
                     if ($notebook && $notebook->subject->user_id == $user->id) $notebook->delete();
                 }
                 continue;
@@ -91,10 +90,10 @@ class SyncController extends Controller
                 ['id' => $notebookData['server_id'] ?? null],
                 [
                     'subject_id'  => $notebookData['subject_id'] ?? null,
-                    'title'       => !empty($notebookData['title']) ? trim($notebookData['title']) : 'Sem Título',
+                    'title'       => !empty($notebookData['title']) ? trim($notebookData['title']) : '', // 🚀 Permite título vazio
                     'cover_type'  => !empty($notebookData['cover_type']) ? $notebookData['cover_type'] : 'color',
                     'color'       => !empty($notebookData['color']) ? $notebookData['color'] : '#3b82f6',
-                    'line_type'   => !empty($notebookData['line_type']) ? $notebookData['line_type'] : 'lines',
+                    'line_type'   => !empty($notebookData['line_type']) ? $notebookData['line_type'] : 'ruled', // 🚀 CORRIGIDO: Flutter usa 'ruled'
                     'paper_size'  => !empty($notebookData['paper_size']) ? $notebookData['paper_size'] : 'A4',
                 ]
             );
@@ -138,73 +137,64 @@ class SyncController extends Controller
     // =========================================================================
     // ✍️ 3. SINCRONIZAÇÃO DE PÁGINAS (PRESERVA IMAGENS BASE64, STROKES E TEXT_DATA)
     // =========================================================================
-    public function pushPages(Request $request) 
+    public function pushPages(Request $request)
     {
         $user = $request->user();
         $clientPages = $request->input('pages', []);
         $syncedPages = [];
 
         foreach ($clientPages as $pageData) {
-            $page = Page::where('notebook_id', $pageData['notebook_id'])
-                        ->where('page_number', $pageData['page_number'])
-                        ->first() ?? new Page([
-                            'notebook_id' => $pageData['notebook_id'], 
-                            'page_number' => $pageData['page_number']
-                        ]);
+            // Localiza ou cria a página
+            $page = Page::firstOrNew([
+                'notebook_id' => $pageData['notebook_id'],
+                'page_number' => $pageData['page_number']
+            ]);
 
-            // 1. Tratamento seguro dos arrays de desenho e texto
+            // 1. Metadados de Título (Header/Footer)
+            // Como as colunas são JSON, o Laravel trata os arrays automaticamente se houver 'casts' no Model.
+            $page->header_data = $pageData['header_data'] ?? ['title' => ''];
+            $page->footer_data = $pageData['footer_data'] ?? ['title' => ''];
+            $page->is_landscape = !empty($pageData['is_landscape']) ? 1 : 0;
+
+            // 2. Conteúdo (Strokes/Texts)
             $newStrokes = $this->parseClientArray($pageData['stroke_data'] ?? []);
-            $mergedStrokes = Page::mergeJsonItems($page->stroke_data, $newStrokes);
-            $page->stroke_data = json_encode($mergedStrokes, JSON_UNESCAPED_UNICODE);
+            $page->stroke_data = Page::mergeJsonItems($page->stroke_data, $newStrokes);
 
             $newTexts = $this->parseClientArray($pageData['text_data'] ?? []);
-            $page->text_data = json_encode(Page::mergeJsonItems($page->text_data, $newTexts), JSON_UNESCAPED_UNICODE);
+            $page->text_data = Page::mergeJsonItems($page->text_data, $newTexts);
 
-            // 2. Imagens com conversão Base64 para ficheiro físico
+            // 3. Imagens
             $incomingImages = $this->parseClientArray($pageData['image_data'] ?? []);
             $processedImages = [];
-            
             foreach ($incomingImages as $img) {
                 if (!empty($img['image_base64'])) {
                     $decoded = base64_decode($img['image_base64']);
                     $filename = 'img_' . uniqid() . '.png';
                     Storage::disk('public')->put('notebook_images/' . $filename, $decoded);
-                    
                     $img['image_path'] = asset('storage/notebook_images/' . $filename);
-                    unset($img['image_base64']); // Remove o payload pesado antes de salvar no banco
+                    unset($img['image_base64']);
                 }
                 $processedImages[] = $img;
             }
-            $page->image_data = json_encode(Page::mergeJsonItems($page->image_data, $processedImages), JSON_UNESCAPED_UNICODE);
+            $page->image_data = Page::mergeJsonItems($page->image_data, $processedImages);
 
-            // 3. Metadados da página (Com blindagem para colunas JSON do MySQL)
-            $page->is_landscape = !empty($pageData['is_landscape']) ? 1 : 0;
-            
-            // Corrige o erro 3140 do MySQL e adiciona o footer_data que faltava
-            $page->header_data = $this->normalizeJsonColumn($pageData['header_data'] ?? null, ['title' => '']);
-            $page->footer_data = $this->normalizeJsonColumn($pageData['footer_data'] ?? null, ['title' => '']);
-            
-            $page->extracted_text = !empty($pageData['extracted_text']) ? (string) $pageData['extracted_text'] : null;
+            $page->extracted_text = $pageData['extracted_text'] ?? null;
             $page->save();
 
-            if (!empty($newStrokes) && empty($page->extracted_text)) {
-                ProcessPageOcr::dispatch($page->id, $pageData['language'] ?? null)
-                    ->onQueue('ocr');
-            }
-
             $syncedPages[] = [
-                'client_id'   => $pageData['client_id'] ?? null, 
-                'server_id'   => $page->id, 
+                'client_id'   => $pageData['client_id'] ?? null,
+                'server_id'   => $page->id,
                 'page_number' => $page->page_number
             ];
         }
 
-        SyncRequested::dispatch($user->id);
-        
-        return response()->json([
-            'message' => 'Páginas salvas.', 
-            'synced_pages' => $syncedPages
-        ]);
+        return response()->json(['message' => 'Páginas sincronizadas com JSON.', 'synced_pages' => $syncedPages]);
+    }
+
+    private function parseClientArray($data) {
+        if (is_array($data)) return $data;
+        if (is_string($data)) return json_decode($data, true) ?? [];
+        return [];
     }
 
     /**
@@ -232,19 +222,6 @@ class SyncController extends Controller
         }
 
         return json_encode($fallback, JSON_UNESCAPED_UNICODE);
-    }
-
-    /**
-     * 🛡️ Converte strings JSON que venham do Flutter em arrays PHP de forma segura.
-     */
-    private function parseClientArray($data): array 
-    {
-        if (is_array($data)) return $data;
-        if (is_string($data)) {
-            $decoded = json_decode($data, true);
-            return is_array($decoded) ? $decoded : [];
-        }
-        return [];
     }
 
     public function pullPages(Request $request)
