@@ -72,6 +72,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/notebooks/{notebook_id}/upload-image', [NotebookController::class, 'uploadImage']);
     // 🎥 WebRTC (Colaboração em Tempo Real)
     Route::post('/notebooks/{notebook_id}/webrtc/signal', [WebRtcController::class, 'signal']);
+    Route::post('/notebooks/{notebook}/upload-audio', [NotebookController::class, 'uploadAudio']);
 
     // =========================================================================
     // 🚀 MOTOR DE SINCRONIZAÇÃO OFFLINE-FIRST (MOBILE/DESKTOP)
