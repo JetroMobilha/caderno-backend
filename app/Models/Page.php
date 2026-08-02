@@ -4,24 +4,25 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes; 
 use Illuminate\Support\Str;
 
 class Page extends Model
 {
-    use HasFactory;
+    use HasFactory,SoftDeletes;
     protected $fillable = [
-    'notebook_id', 
-    'page_number', 
-    'is_landscape',  
-    'header_data',
-    'footer_data',
-    'extracted_text',  
-    'stroke_data',
-    'text_data',     
-    'ocr_data',
-    'image_data',    
-];
-  
+        'notebook_id', 
+        'page_number', 
+        'is_landscape',  
+        'header_data',
+        'footer_data',
+        'extracted_text',  
+        'stroke_data',
+        'text_data',     
+        'ocr_data',
+        'image_data',    
+    ];
+     
     protected $casts = [
         'is_landscape' => 'boolean', 
         'stroke_data'  => 'array',

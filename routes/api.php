@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\SyncController;
 use App\Http\Controllers\Api\MarketplaceController;
 use App\Http\Controllers\AIAssistantController;
 use App\Http\Controllers\HandwritingRecognitionController;
+use App\Http\Controllers\Api\HandwritingSynthesisController;
 
 /*
 |--------------------------------------------------------------------------
@@ -99,4 +100,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ✍️ Reconhecimento de escrita manual (gratuito, local)
     Route::post('/handwriting/recognize', [HandwritingRecognitionController::class, 'recognize']);
+
+    // ✍️ Síntese de escrita manual (texto para traços vetoriais)
+    Route::post('/handwriting/synthesize', [HandwritingSynthesisController::class, 'synthesize']);
 });

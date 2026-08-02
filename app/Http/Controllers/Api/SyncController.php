@@ -165,6 +165,15 @@ class SyncController extends Controller
         $syncedPages = [];
 
         foreach ($clientPages as $pageData) {
+
+            // 🎯 NOVO: Verificar se é um pedido de eliminação
+            if (!empty($pageData['is_deleted']) && $pageData['is_deleted'] == 1) {
+                Page::where('notebook_id', $pageData['notebook_id'])
+                    ->where('page_number', $pageData['page_number'])
+                    ->delete();
+                continue; // Passa para a próxima página do payload
+            }
+
             // Localiza ou cria a página
             $page = Page::firstOrNew([
                 'notebook_id' => $pageData['notebook_id'],
@@ -265,7 +274,7 @@ class SyncController extends Controller
         $user = $request->user();
         $lastSyncedAt = $request->query('last_synced_at');
 
-        $query = Page::whereHas('notebook', function ($q) use ($user) {
+        $query = Page::withTrashed()->whereHas('notebook', function ($q) use ($user) {
             $q->where(function ($inner) use ($user) {
                 $inner->whereHas('subject', function ($sub) use ($user) {
                     $sub->where('user_id', $user->id);

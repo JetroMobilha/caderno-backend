@@ -2,7 +2,7 @@
 
 Este documento explica como o frontend deve consumir o fluxo de reconhecimento de escrita manual do backend.
 
-## Objetivo
+## Visão Geral e Objetivo
 
 O backend já reconhece texto manuscrito no servidor a partir dos traços (`stroke_data`) enviados pelo cliente. O texto reconhecido é guardado em uma estrutura separada, sem misturar com o texto introduzido manualmente pelo utilizador.
 
@@ -10,6 +10,7 @@ O backend já reconhece texto manuscrito no servidor a partir dos traços (`stro
 
 - O OCR não é feito a partir de `text_data`.
 - O OCR é processado no servidor, a partir dos traços manuscritos.
+- **Ponto Chave**: O reconhecimento de escrita para texto é um **serviço interno e automático do servidor**. O frontend não precisa de chamar um endpoint de OCR específico. O processo é acionado automaticamente quando o frontend sincroniza uma página que contém `stroke_data`.
 - O resultado do OCR fica separado do texto digitado/introduzido pelo utilizador.
 - O texto reconhecido é guardado em duas camadas:
   - `extracted_text`: valor principal e mais simples para mostrar no UI.

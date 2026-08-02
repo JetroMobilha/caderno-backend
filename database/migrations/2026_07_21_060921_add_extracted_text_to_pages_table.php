@@ -20,9 +20,10 @@ return new class extends Migration
                   ->collation('utf8mb4_unicode_ci')
                   ->after('footer_data');
 
-            // 2. Criar o índice Full-Text nativo
-            // Damos um nome customizado ao índice (segundo parâmetro) para facilitar o drop na reversão
-            $table->fullText('extracted_text', 'idx_pages_extracted_text_fulltext');
+            // 2. Criar o índice Full-Text nativo (apenas para MySQL)
+            if (DB::getDriverName() === 'mysql') {
+                $table->fullText('extracted_text', 'idx_pages_extracted_text_fulltext');
+            }
         });
     }
 
@@ -33,7 +34,9 @@ return new class extends Migration
     {
         Schema::table('pages', function (Blueprint $table) {
             // No MySQL, deves SEMPRE remover o índice antes de remover a coluna
-            $table->dropFullText('idx_pages_extracted_text_fulltext');
+            if (DB::getDriverName() === 'mysql') {
+                $table->dropFullText('idx_pages_extracted_text_fulltext');
+            }
             $table->dropColumn('extracted_text');
         });
     }
