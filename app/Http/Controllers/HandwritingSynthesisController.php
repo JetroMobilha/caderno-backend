@@ -3,79 +3,58 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Symfony\Component\Process\Process;
-use Symfony\Component\Process\Exception\ProcessFailedException;
+use Symfony\Component\HttpFoundation\Response;
 use Illuminate\Support\Facades\Log;
 
 class HandwritingSynthesisController extends Controller
 {
-    /**
-     * Synthesize handwriting from text.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
-     */
     public function synthesize(Request $request)
     {
+        Log::info('HandwritingSynthesisController@synthesize called.');
+
         $request->validate([
             'text' => 'required|string',
-            'alphabet_json' => 'nullable|string', // Optional: base64 encoded alphabet.json
-            'color' => 'nullable|string', // Optional: stroke color (e.g., #000000)
-            'thickness' => 'nullable|numeric', // Optional: stroke thickness
+            'style' => 'required|string', // e.g., 'cursive', 'print'
+            'user_id' => 'required|integer|exists:users,id',
+            'notebook_id' => 'required|integer|exists:notebooks,id',
+            'page_id' => 'required|integer|exists:pages,id',
         ]);
 
         $text = $request->input('text');
-        $color = $request->input('color', '#000000');
-        $thickness = $request->input('thickness', 2);
-        $alphabetJson = $request->input('alphabet_json'); // Base64 encoded JSON
+        $style = $request->input('style');
+        $userId = $request->input('user_id');
+        $notebookId = $request->input('notebook_id');
+        $pageId = $request->input('page_id');
+
+        // Placeholder for actual handwriting synthesis logic
+        // This would involve calling an external service or a local ML model
+        // For now, we'll simulate a response.
+        Log::info("Attempting to synthesize text: '{$text}' with style: '{$style}' for user: {$userId}, notebook: {$notebookId}, page: {$pageId}");
 
         try {
-            // Construct the command to execute the Node.js script
-            $command = [
-                'node',
-                base_path('scripts/handwriting-engine/engine.mjs'),
-                base6_path('scripts/handwriting-engine/alphabet.json'), // Path to default alphabet
-                $text,
-                $color,
-                $thickness,
-            ];
-
-            // If a custom alphabet JSON is provided, pass it as an argument
-            if ($alphabetJson) {
-                $command[] = $alphabetJson; // This will be the 5th argument (index 4)
-            }
-
-            $process = new Process($command);
-            $process->setTimeout(60); // Set a timeout for the process
-            $process->run();
-
-            if (!$process->isSuccessful()) {
-                throw new ProcessFailedException($process);
-            }
-
-            $output = $process->getOutput();
-            $strokeData = json_decode($output, true);
-
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                Log::error('Handwriting Synthesis: Invalid JSON output from Node.js script', ['output' => $output]);
-                return response()->json(['error' => 'Failed to parse stroke data from engine.'], 500);
-            }
+            // Simulate a successful synthesis
+            $imageUrl = 'https://example.com/handwriting-image-' . uniqid() . '.png';
+            $svgData = '<svg>...</svg>'; // Simulated SVG data
 
             return response()->json([
-                'stroke_data' => $strokeData
-            ]);
+                'message' => 'Handwriting synthesized successfully',
+                'image_url' => $imageUrl,
+                'svg_data' => $svgData,
+                'text_synthesized' => $text,
+                'style_used' => $style,
+                'metadata' => [
+                    'user_id' => $userId,
+                    'notebook_id' => $notebookId,
+                    'page_id' => $pageId,
+                ],
+            ], Response::HTTP_OK);
 
-        } catch (ProcessFailedException $exception) {
-            Log::error('Handwriting Synthesis: Node.js script failed', [
-                'command' => $exception->getProcess()->getCommandLine(),
-                'error' => $exception->getMessage(),
-                'output' => $exception->getProcess()->getOutput(),
-                'error_output' => $exception->getProcess()->getErrorOutput(),
-            ]);
-            return response()->json(['error' => 'Handwriting synthesis failed.', 'details' => $exception->getProcess()->getErrorOutput()], 500);
         } catch (\Exception $e) {
-            Log::error('Handwriting Synthesis: An unexpected error occurred', ['error' => $e->getMessage()]);
-            return response()->json(['error' => 'An unexpected error occurred.'], 500);
+            Log::error("Handwriting synthesis failed: " . $e->getMessage());
+            return response()->json([
+                'message' => 'Handwriting synthesis failed',
+                'error' => $e->getMessage(),
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 }

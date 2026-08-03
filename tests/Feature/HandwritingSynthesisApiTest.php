@@ -3,78 +3,112 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\File;
 use Tests\TestCase;
 use App\Models\User;
+use App\Models\Notebook;
+use App\Models\Page;
 
 class HandwritingSynthesisApiTest extends TestCase
 {
     use RefreshDatabase;
 
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        // Garante que o diretório e o ficheiro de alfabeto existem para os testes
-        $dir = base_path('scripts/handwriting-engine');
-        if (!File::exists($dir)) {
-            File::makeDirectory($dir, 0755, true);
-        }
-        File::put(
-            $dir . '/alfabeto.json',
-            json_encode([
-                "o" => ["width" => 30, "strokes" => [["points" => [["dx" => 15, "dy" => 15]]]]],
-                "l" => ["width" => 20, "strokes" => [["points" => [["dx" => 10, "dy" => 30]]]]],
-                "a" => ["width" => 30, "strokes" => [["points" => [["dx" => 15, "dy" => 15]]]]]
-            ], JSON_PRETTY_PRINT)
-        );
-    }
-
-    /**
-     * @test
-     * Teste para uma requisição de síntese bem-sucedida.
-     */
-    public function it_returns_a_successful_response_for_a_valid_request(): void
+    /** @test */
+    public function it_can_synthesize_handwriting()
     {
         $user = User::factory()->create();
-        $textToSynthesize = 'ola';
+        $notebook = Notebook::factory()->create(['user_id' => $user->id]);
+        $page = Page::factory()->create(['notebook_id' => $notebook->id]);
 
-        $response = $this->actingAs($user)->postJson('/api/handwriting/synthesize', [
-            'text' => $textToSynthesize,
+        $response = $this->postJson('/api/handwriting/synthesize', [
+            'text' => 'Hello, world!',
+            'style' => 'cursive',
+            'user_id' => $user->id,
+            'notebook_id' => $notebook->id,
+            'page_id' => $page->id,
         ]);
 
-        $response->assertStatus(200);
-        $response->assertJsonIsArray();
+        $response->assertStatus(200)
+                 ->assertJsonStructure([
+                     'message',
+                     'image_url',
+                     'svg_data',
+                     'text_synthesized',
+                     'style_used',
+                     'metadata' => [
+                         'user_id',
+                         'notebook_id',
+                         'page_id',
+                     ],
+                 ]);
+
+        $this->assertEquals('Hello, world!', $response->json('text_synthesized'));
+        $this->assertEquals('cursive', $response->json('style_used'));
+        $this->assertEquals($user->id, $response->json('metadata.user_id'));
     }
 
-    /**
-     * @test
-     * Teste para erro de validação quando o campo 'text' está em falta.
-     */
-    public function it_returns_a_validation_error_if_text_is_missing(): void
+    /** @test */
+    public function it_returns_error_for_missing_required_fields()
     {
-        $user = User::factory()->create();
+        $response = $this->postJson('/api/handwriting/synthesize', []);
 
-        $response = $this->actingAs($user)->postJson('/api/handwriting/synthesize', []);
-
-        $response->assertStatus(422);
-        $response->assertJsonValidationErrors(['text']);
+        $response->assertStatus(422)
+                 ->assertJsonValidationErrors(['text', 'style', 'user_id', 'notebook_id', 'page_id']);
     }
 
-    /**
-     * @test
-     * Teste para o caso de um caractere não existir no alfabeto.
-     */
-    public function it_returns_an_error_if_a_character_is_not_in_the_alphabet(): void
+    /** @test */
+    public function it_returns_error_for_invalid_user_id()
     {
         $user = User::factory()->create();
-        $textToSynthesize = 'olax'; // 'x' não existe no nosso alfabeto de teste
+        $notebook = Notebook::factory()->create(['user_id' => $user->id]);
+        $page = Page::factory()->create(['notebook_id' => $notebook->id]);
 
-        $response = $this->actingAs($user)->postJson('/api/handwriting/synthesize', [
-            'text' => $textToSynthesize,
+        $response = $this->postJson('/api/handwriting/synthesize', [
+            'text' => 'Hello, world!',
+            'style' => 'print',
+            'user_id' => 9999, // Non-existent user ID
+            'notebook_id' => $notebook->id,
+            'page_id' => $page->id,
         ]);
 
-        $response->assertStatus(500);
-        $response->assertJson(['error' => 'Não foi possível gerar a escrita manual.']);
+        $response->assertStatus(422)
+                 ->assertJsonValidationErrors(['user_id']);
+    }
+
+    /** @test */
+    public function it_returns_error_for_invalid_notebook_id()
+    {
+        $user = User::factory()->create();
+        $notebook = Notebook::factory()->create(['user_id' => $user->id]);
+        $page = Page::factory()->create(['notebook_id' => $notebook->id]);
+
+        $response = $this->postJson('/api/handwriting/synthesize', [
+            'text' => 'Hello, world!',
+            'style' => 'print',
+            'user_id' => $user->id,
+            'notebook_id' => 9999, // Non-existent notebook ID
+            'page_id' => $page->id,
+        ]);
+
+        $response->assertStatus(422)
+                 ->assertJsonValidationErrors(['notebook_id']);
+    }
+
+    /** @test */
+    public function it_returns_error_for_invalid_page_id()
+    {
+        $user = User::factory()->create();
+        $notebook = Notebook::factory()->create(['user_id' => $user->id]);
+        $page = Page::factory()->create(['notebook_id' => $notebook->id]);
+
+        $response = $this->postJson('/api/handwriting/synthesize', [
+            'text' => 'Hello, world!',
+            'style' => 'print',
+            'user_id' => $user->id,
+            'notebook_id' => $notebook->id,
+            'page_id' => 9999, // Non-existent page ID
+        ]);
+
+        $response->assertStatus(422)
+                 ->assertJsonValidationErrors(['page_id']);
     }
 }

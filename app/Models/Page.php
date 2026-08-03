@@ -12,7 +12,9 @@ class Page extends Model
     use HasFactory,SoftDeletes;
     protected $fillable = [
         'notebook_id', 
-        'page_number', 
+        'page_number',
+        'client_id', 
+        'updated_at_ms',
         'is_landscape',  
         'header_data',
         'footer_data',
@@ -38,25 +40,32 @@ class Page extends Model
         return $this->belongsTo(Notebook::class);
     }
 
-    public static function mergeJsonItems($existingJson, $incomingArray) {
-        $existing = is_string($existingJson) ? json_decode($existingJson, true) : ($existingJson ?? []);
-        $map = [];
+    public static function mergeJsonItems($oldData, $newItems)
+    {
+        $oldItems = is_array($oldData) ? $oldData : json_decode($oldData, true) ?? [];
+        $newItems = is_array($newItems) ? $newItems : json_decode($newItems, true) ?? [];
 
-        foreach ($existing as $item) {
-            if (isset($item['id'])) $map[$item['id']] = $item;
-        }
+        $merged = collect($oldItems)->keyBy('id');
 
-        foreach ($incomingArray as $item) {
-            if (isset($item['id'])) {
-                $id = $item['id'];
-                if (!empty($item['is_deleted']) && ($item['is_deleted'] == true || $item['is_deleted'] == 1)) {
-                    unset($map[$id]);
-                } else {
-                    $map[$id] = $item;
+        foreach ($newItems as $newItem) {
+            $id = $newItem['id'] ?? null;
+            if (!$id) continue;
+
+            if ($merged->has($id)) {
+                $oldItem = $merged->get($id);
+                // 🚀 REGRA LWW: O maior timestamp (milissegundos) vence.
+                $oldTime = $oldItem['updated_at'] ?? 0;
+                $newTime = $newItem['updated_at'] ?? 0;
+
+                if ($newTime >= $oldTime) {
+                    $merged->put($id, $newItem);
                 }
+            } else {
+                $merged->put($id, $newItem);
             }
         }
-        return array_values($map);
+
+        return $merged->values()->all();
     }
 
     public function buildOcrTextEntry(string $recognizedText, array $result = []): array

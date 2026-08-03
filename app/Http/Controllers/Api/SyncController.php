@@ -71,12 +71,14 @@ class SyncController extends Controller
         $lastSyncedAt = $request->query('last_synced_at');
 
         $query = Subject::withTrashed()->where('user_id', $user->id);
-        if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
+        if ($lastSyncedAt) { $query->where('updated_at', '>', $lastSyncedAt); }
+
+        $paginatedSubjects = $query->paginate(50);
 
         return response()->json([
-            'message' => 'Rastreio de disciplinas concluído.',
-            'subjects' => $query->get(),
-            'server_time' => now()->toIso8601String()
+            'data' => $paginatedSubjects->items(),
+            'links' => $paginatedSubjects->linkCollection(),
+            'meta' => ['server_time' => now()->toIso8601String()]
         ]);
     }
 
@@ -84,7 +86,7 @@ class SyncController extends Controller
     // =========================================================================
     // 📓 2. SINCRONIZAÇÃO DE CADERNOS (MONETIZAÇÃO + VERIFICAÇÃO DE ROLES)
     // =========================================================================
-     public function pushNotebooks(Request $request)
+    public function pushNotebooks(Request $request)
     {
         $user = $request->user();
         $syncedNotebooks = [];
@@ -130,28 +132,29 @@ class SyncController extends Controller
     public function pullNotebooks(Request $request)
     {
         $user = $request->user();
+        $lastSyncedAt = $request->query('last_synced_at');
 
-        // 1. Próprios (Respeita deleted_at via Eloquent)
-        $own = Notebook::whereHas('subject', fn($q) => $q->where('user_id', $user->id))
-                      ->get()->map(fn($n) => (object) array_merge($n->toArray(), ['role' => 'owner']));
+        // Unifica a busca por cadernos próprios e partilhados numa única query paginável,
+        // preservando a lógica original.
+        $query = Notebook::withTrashed()->where(function ($q) use ($user) {
+            // Condição 1: Cadernos onde o utilizador é o dono (através da disciplina)
+            $q->whereHas('subject', fn($sub) => $sub->where('user_id', $user->id))
+              // OU Condição 2: Cadernos que foram partilhados com o utilizador
+              ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
+        });
 
-        // 2. Partilhados (ADICIONADO whereNull para respeitar a exclusão)
-        $shared = DB::table('notebooks')
-            ->join('notebook_user', 'notebooks.id', '=', 'notebook_user.notebook_id')
-            ->where('notebook_user.user_id', $user->id)
-            ->whereNull('notebooks.deleted_at')
-            ->select('notebooks.*', 'notebook_user.role')
-            ->get()
-            ->map(function($n) {
-                $n->server_id = $n->id;
-                $n->subject_id = null;
-                return $n;
-            });
+        // Aplica o filtro de sincronização, se existir
+        if ($lastSyncedAt) {
+            $query->where('updated_at', '>', $lastSyncedAt);
+        }
+
+        // Pagina o resultado em vez de buscar tudo com ->get()
+        $paginatedNotebooks = $query->paginate(50);
 
         return response()->json([
-            'message' => 'Estante universal sincronizada.',
-            'notebooks' => $own->concat($shared),
-            'server_time' => now()->toIso8601String()
+            'data' => $paginatedNotebooks->items(),
+            'links' => $paginatedNotebooks->linkCollection(),
+            'meta' => ['server_time' => now()->toIso8601String()]
         ]);
     }
 
@@ -164,76 +167,85 @@ class SyncController extends Controller
         $clientPages = $request->input('pages', []);
         $syncedPages = [];
 
-        foreach ($clientPages as $pageData) {
+        DB::transaction(function () use ($user, $clientPages, &$syncedPages) {
+            foreach ($clientPages as $pageData) {
+                // 1. Reconciliação por client_id
+                $page = Page::lockForUpdate()->firstOrNew(['client_id' => $pageData['client_id']]);
 
-            // 🎯 NOVO: Verificar se é um pedido de eliminação
-            if (!empty($pageData['is_deleted']) && $pageData['is_deleted'] == 1) {
-                Page::where('notebook_id', $pageData['notebook_id'])
-                    ->where('page_number', $pageData['page_number'])
-                    ->delete();
-                continue; // Passa para a próxima página do payload
-            }
+                // 2. Segurança (Roles)
+                $notebook = Notebook::find($page->notebook_id ?? $pageData['notebook_id']);
+                if (!$notebook) continue;
 
-            // Localiza ou cria a página
-            $page = Page::firstOrNew([
-                'notebook_id' => $pageData['notebook_id'],
-                'page_number' => $pageData['page_number']
-            ]);
+                $isOwner = $notebook->subject->user_id === $user->id;
+                $isEditor = $notebook->sharedUsers()->where('user_id', $user->id)->whereIn('role', ['editor'])->exists();
 
-            // 1. Metadados de Título (Header/Footer)
-            // Como as colunas são JSON, o Laravel trata os arrays automaticamente se houver 'casts' no Model.
-            $page->header_data = $pageData['header_data'] ?? ['title' => ''];
-            $page->footer_data = $pageData['footer_data'] ?? ['title' => ''];
-            $page->is_landscape = !empty($pageData['is_landscape']) ? 1 : 0;
-
-            // 2. Conteúdo (Strokes/Texts)
-            $newStrokes = $this->parseClientArray($pageData['stroke_data'] ?? []);
-            $page->stroke_data = Page::mergeJsonItems($page->stroke_data, $newStrokes);
-
-            $newTexts = $this->parseClientArray($pageData['text_data'] ?? []);
-            $page->text_data = Page::mergeJsonItems($page->text_data, $newTexts);
-
-            // 3. Imagens
-            $incomingImages = $this->parseClientArray($pageData['image_data'] ?? []);
-            $processedImages = [];
-            foreach ($incomingImages as $img) {
-                if (!empty($img['image_base64'])) {
-                    $decoded = base64_decode($img['image_base64']);
-                    $filename = 'img_' . uniqid() . '.png';
-                    Storage::disk('public')->put('notebook_images/' . $filename, $decoded);
-                    $img['image_path'] = asset('storage/notebook_images/' . $filename);
-                    unset($img['image_base64']);
+                if (!$isOwner && !$isEditor) {
+                    continue; // Silenciosamente ignora o push de viewers
                 }
-                $processedImages[] = $img;
-            }
-            $page->image_data = Page::mergeJsonItems($page->image_data, $processedImages);
-
-            $page->extracted_text = $pageData['extracted_text'] ?? null;
-            $page->save();
-
-            // Despacha o Job de OCR se houver novos traços e o texto ainda não foi extraído.
-            try {
-                if (!empty($newStrokes) && empty($page->extracted_text)) {
-                    ProcessPageOcr::dispatch($page->id);
+                
+                // 3. Soft Delete
+                if (!empty($pageData['is_deleted']) && $pageData['is_deleted'] == 1) {
+                    if ($page->exists) {
+                        $page->delete();
+                        // Disparar evento de deleção
+                        broadcast(new SyncRequested('page.deleted', $page, $notebook->id))->toOthers();
+                    }
+                    continue;
                 }
-            } catch (\Throwable $e) {
-                // Protege contra quebra da sincronização e regista no Log
-                Log::error('Erro ao despachar o Job ProcessPageOcr.', [
-                    'page_id' => $page->id ?? null,
-                    'erro' => $e->getMessage(),
-                    'linha' => $e->getLine(),
-                    'arquivo' => $e->getFile()
+
+                // Preencher dados para criação ou atualização
+                $page->fill([
+                    'notebook_id'   => $notebook->id,
+                    'page_number'   => $pageData['page_number'],
+                    'updated_at_ms' => $pageData['updated_at_ms'] ?? null,
+                    'is_landscape'  => !empty($pageData['is_landscape']) ? 1 : 0,
+                    'header_data'   => $pageData['header_data'] ?? ['title' => ''],
+                    'footer_data'   => $pageData['footer_data'] ?? ['title' => ''],
+                    'extracted_text'=> $pageData['extracted_text'] ?? null,
                 ]);
+
+                // Fusão de conteúdo JSON com base em Timestamps (LWW)
+                $page->stroke_data = Page::mergeJsonItems($page->stroke_data, $this->parseClientArray($pageData['stroke_data'] ?? []));
+                $page->text_data   = Page::mergeJsonItems($page->text_data, $this->parseClientArray($pageData['text_data'] ?? []));
+                
+                // Processamento de Imagens Base64 antes da fusão
+                $incomingImages = $this->parseClientArray($pageData['image_data'] ?? []);
+                $processedImages = [];
+                foreach ($incomingImages as $img) {
+                    if (!empty($img['image_base64'])) {
+                        $decoded = base64_decode($img['image_base64']);
+                        $filename = 'img_' . uniqid() . '.png';
+                        Storage::disk('public')->put('notebook_images/' . $filename, $decoded);
+                        $img['image_path'] = asset('storage/notebook_images/' . $filename);
+                        unset($img['image_base64']);
+                    }
+                    $processedImages[] = $img;
+                }
+                $page->image_data = Page::mergeJsonItems($page->image_data, $processedImages);
+                
+                $page->save();
+
+                // 4. Broadcast
+                broadcast(new SyncRequested('page.updated', $page, $notebook->id))->toOthers();
+
+                // Disparar OCR se necessário
+                if (!empty($pageData['stroke_data']) && empty($page->extracted_text)) {
+                    try {
+                        ProcessPageOcr::dispatch($page->id);
+                    } catch (\Throwable $e) {
+                        Log::error('Erro ao despachar o Job ProcessPageOcr.', ['page_id' => $page->id, 'error' => $e->getMessage()]);
+                    }
+                }
+
+                $syncedPages[] = [
+                    'client_id'   => $page->client_id,
+                    'server_id'   => $page->id,
+                    'page_number' => $page->page_number
+                ];
             }
+        });
 
-            $syncedPages[] = [
-                'client_id'   => $pageData['client_id'] ?? null,
-                'server_id'   => $page->id,
-                'page_number' => $page->page_number
-            ];
-        }
-
-        return response()->json(['message' => 'Páginas sincronizadas com JSON.', 'synced_pages' => $syncedPages]);
+        return response()->json(['message' => 'Páginas sincronizadas com sucesso.', 'synced_pages' => $syncedPages]);
     }
 
     private function parseClientArray($data) {
@@ -286,10 +298,13 @@ class SyncController extends Controller
 
         if ($lastSyncedAt) { $query->where('updated_at', '>', $lastSyncedAt); }
 
+        // Em vez de ->get(), usamos ->paginate() para enviar os dados em "chunks"
+        $paginatedPages = $query->paginate(50);
+
         return response()->json([
-            'message' => 'Rastreio de páginas concluído.',
-            'pages' => $query->get(),
-            'server_time' => now()->toIso8601String()
+            'data' => $paginatedPages->items(),
+            'meta' => ['server_time' => now()->toIso8601String()],
+            'links' => $paginatedPages->linkCollection(),
         ]);
     }
 }

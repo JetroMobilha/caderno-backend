@@ -102,5 +102,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/handwriting/recognize', [HandwritingRecognitionController::class, 'recognize']);
 
     // ✍️ Síntese de escrita manual (texto para traços vetoriais)
-    Route::post('/handwriting/synthesize', [HandwritingSynthesisController::class, 'synthesize']);
+    Route::post('/handwriting/synthesize', [App\Http\Controllers\HandwritingSynthesisController::class, 'synthesize']);
 });
