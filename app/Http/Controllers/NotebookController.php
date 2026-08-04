@@ -56,6 +56,7 @@ class NotebookController extends Controller
             'color'       => 'nullable|string|max:50',
             'line_type'   => 'nullable|string|max:50',
             'paper_size'  => 'nullable|string|max:10',
+            'line_spacing' => 'nullable|numeric|min:10|max:150',
         ]);
 
         $notebook = $subject->notebooks()->create([
@@ -64,6 +65,7 @@ class NotebookController extends Controller
             'color'       => $request->color ?? '#0F4C5C',
             'line_type'   => $request->line_type ?? 'ruled',
             'paper_size'  => $request->paper_size ?? 'A4',
+            'line_spacing' => $request->line_spacing ?? 28,
         ]);
 
         SyncRequested::dispatch($request->user()->id);
@@ -86,7 +88,7 @@ class NotebookController extends Controller
             return response()->json(['message' => 'Acesso negado.'], 403);
         }
 
-        $notebook->update($request->only(['title', 'cover_type', 'color', 'line_type', 'paper_size', 'price', 'is_published', 'description']));
+        $notebook->update($request->only(['title', 'cover_type', 'color', 'line_type', 'paper_size', 'price', 'is_published', 'description', 'line_spacing']));
         SyncRequested::dispatch($request->user()->id);
         return response()->json($notebook, 200);
     }

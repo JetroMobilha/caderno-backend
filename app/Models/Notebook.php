@@ -19,6 +19,7 @@ class Notebook extends Model
         'cover_image',
         'line_type',
         'paper_size',
+        'line_spacing',
     ];
     
     // Um caderno pertence a uma disciplina

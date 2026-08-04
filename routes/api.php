@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\MarketplaceController;
 use App\Http\Controllers\AIAssistantController;
 use App\Http\Controllers\HandwritingRecognitionController;
 use App\Http\Controllers\Api\HandwritingSynthesisController;
+use App\Http\Controllers\Api\UserAlphabetController;
 
 /*
 |--------------------------------------------------------------------------
@@ -98,9 +99,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ai/search', [AIAssistantController::class, 'search']);
     Route::post('/ai/summarize', [AIAssistantController::class, 'summarize']);
 
+    // 🔎 Pesquisa Global (OCR)
+    Route::get('/search', [App\Http\Controllers\SearchController::class, 'globalSearch']);
+
     // ✍️ Reconhecimento de escrita manual (gratuito, local)
     Route::post('/handwriting/recognize', [HandwritingRecognitionController::class, 'recognize']);
 
     // ✍️ Síntese de escrita manual (texto para traços vetoriais)
     Route::post('/handwriting/synthesize', [App\Http\Controllers\HandwritingSynthesisController::class, 'synthesize']);
+
+    // 🖋️ Armazenar o alfabeto personalizado do utilizador
+    Route::post('/handwriting/alphabet', [UserAlphabetController::class, 'store']);
 });

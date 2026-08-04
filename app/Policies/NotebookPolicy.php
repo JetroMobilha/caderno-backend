@@ -32,6 +32,14 @@ class NotebookPolicy
     }
 
     /**
+     * Determine whether the user can export the model to PDF.
+     */
+    public function exportPdf(User $user, Notebook $notebook): bool
+    {
+        return $this->view($user, $notebook);
+    }
+
+    /**
      * Determine whether the user can create models.
      */
     public function create(User $user): bool
