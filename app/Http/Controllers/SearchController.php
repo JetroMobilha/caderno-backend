@@ -28,7 +28,7 @@ class SearchController extends Controller
                      ->whereHas('notebook.subject', function ($query) use ($user) {
                          $query->where('user_id', $user->id);
                      })
-                     ->with(['notebook:id,title', 'notebook.subject:id,title']) // Eager load relationships
+                     ->with(['notebook:id,title,subject_id', 'notebook.subject:id,name']) // Eager load relationships
                      ->get();
 
         return response()->json($pages);

@@ -2,17 +2,14 @@
 
 namespace App\Events;
 
-use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PresenceChannel;
-use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 use App\Models\Page;
 
-class PageUpdated implements ShouldBroadcastNow
+class PageDeleted implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
@@ -41,7 +38,7 @@ class PageUpdated implements ShouldBroadcastNow
      */
     public function broadcastAs(): string
     {
-        return 'page.updated';
+        return 'page.deleted';
     }
 
     /**
@@ -49,10 +46,9 @@ class PageUpdated implements ShouldBroadcastNow
      */
     public function broadcastWith(): array
     {
-        // Return the entire page model, which will be serialized to JSON.
-        // This ensures the 'version' field is included.
         return [
-            'page' => $this->page->toArray(),
+            'client_id' => $this->page->client_id,
+            'id' => $this->page->id, // server id for completeness
         ];
     }
 }

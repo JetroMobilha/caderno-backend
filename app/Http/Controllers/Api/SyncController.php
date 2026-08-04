@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Log;
 use App\Models\Subject;
 use App\Models\Notebook;
 use App\Models\Page;  
+use App\Events\PageDeleted;
+use App\Events\PageUpdated;
 use App\Events\SyncRequested;
 
 class SyncController extends Controller
@@ -169,50 +171,69 @@ class SyncController extends Controller
 
         DB::transaction(function () use ($user, $clientPages, &$syncedPages) {
             foreach ($clientPages as $pageData) {
-                // 1. Reconciliação por client_id
-                $page = Page::lockForUpdate()->firstOrNew(['client_id' => $pageData['client_id']]);
+                // 1. Validate incoming data
+                if (empty($pageData['client_id']) || !isset($pageData['version'])) {
+                    continue;
+                }
 
-                // 2. Segurança (Roles)
-                $notebook = Notebook::find($page->notebook_id ?? $pageData['notebook_id']);
+                // 2. Find local page (including soft-deleted ones)
+                $localPage = Page::withTrashed()->where('client_id', $pageData['client_id'])->first();
+
+                // 3. Authorization Check
+                $notebookId = $localPage->notebook_id ?? $pageData['notebook_id'];
+                $notebook = Notebook::find($notebookId);
                 if (!$notebook) continue;
 
                 $isOwner = $notebook->subject->user_id === $user->id;
                 $isEditor = $notebook->sharedUsers()->where('user_id', $user->id)->whereIn('role', ['editor'])->exists();
+                if (!$isOwner && !$isEditor) continue;
 
-                if (!$isOwner && !$isEditor) {
-                    continue; // Silenciosamente ignora o push de viewers
+                // 4. LWW Conflict Resolution (Version + Timestamp)
+                if ($localPage) {
+                    $incomingVersion = (int)($pageData['version'] ?? 1);
+                    $incomingTimestamp = isset($pageData['updated_at']) ? strtotime($pageData['updated_at']) : 0;
+                    $localTimestamp = strtotime($localPage->updated_at);
+
+                    $isIncomingNewer = ($incomingVersion > $localPage->version) ||
+                                       ($incomingVersion == $localPage->version && $incomingTimestamp > $localTimestamp);
+
+                    if (!$isIncomingNewer) {
+                        continue; // Server version is newer or same, so we ignore the client's push.
+                    }
                 }
                 
-                // 3. Soft Delete
+                // 5. Handle Soft Deletes (Tombstone)
                 if (!empty($pageData['is_deleted']) && $pageData['is_deleted'] == 1) {
-                    if ($page->exists) {
-                        $page->delete();
-                        // Disparar evento de deleção
-                        broadcast(new SyncRequested('page.deleted', $page, $notebook->id))->toOthers();
+                    if ($localPage && !$localPage->trashed()) {
+                        $localPage->version = $pageData['version']; // Bump version on delete
+                        $localPage->delete();
+                        broadcast(new PageDeleted($localPage))->toOthers();
                     }
-                    continue;
+                    continue; // Move to next page
                 }
 
-                // Preencher dados para criação ou atualização
-                $page->fill([
+                // 6. Create or Update Logic
+                $updateData = [
                     'notebook_id'   => $notebook->id,
                     'page_number'   => $pageData['page_number'],
+                    'version'       => $pageData['version'],
+                    'updated_at'    => $pageData['updated_at'] ?? now(),
                     'updated_at_ms' => $pageData['updated_at_ms'] ?? null,
                     'is_landscape'  => !empty($pageData['is_landscape']) ? 1 : 0,
                     'header_data'   => $pageData['header_data'] ?? ['title' => ''],
                     'footer_data'   => $pageData['footer_data'] ?? ['title' => ''],
                     'extracted_text'=> $pageData['extracted_text'] ?? null,
-                ]);
-
-                // Fusão de conteúdo JSON com base em Timestamps (LWW)
-                $page->stroke_data = Page::mergeJsonItems($page->stroke_data, $this->parseClientArray($pageData['stroke_data'] ?? []));
-                $page->text_data   = Page::mergeJsonItems($page->text_data, $this->parseClientArray($pageData['text_data'] ?? []));
+                    'deleted_at'    => null, // Explicitly set deleted_at to null for updates/restores
+                ];
                 
-                // Processamento de Imagens Base64 antes da fusão
-                $incomingImages = $this->parseClientArray($pageData['image_data'] ?? []);
+                // Merge JSON content
+                $updateData['stroke_data'] = Page::mergeJsonItems($localPage->stroke_data ?? [], $this->parseClientArray($pageData['stroke_data'] ?? []));
+                $updateData['text_data'] = Page::mergeJsonItems($localPage->text_data ?? [], $this->parseClientArray($pageData['text_data'] ?? []));
+                
+                // Process and merge images
                 $processedImages = [];
-                foreach ($incomingImages as $img) {
-                    if (!empty($img['image_base64'])) {
+                foreach ($this->parseClientArray($pageData['image_data'] ?? []) as $img) {
+                     if (!empty($img['image_base64'])) {
                         $decoded = base64_decode($img['image_base64']);
                         $filename = 'img_' . uniqid() . '.png';
                         Storage::disk('public')->put('notebook_images/' . $filename, $decoded);
@@ -221,26 +242,33 @@ class SyncController extends Controller
                     }
                     $processedImages[] = $img;
                 }
-                $page->image_data = Page::mergeJsonItems($page->image_data, $processedImages);
+                $updateData['image_data'] = Page::mergeJsonItems($localPage->image_data ?? [], $processedImages);
+
+                if ($localPage) {
+                    if($localPage->trashed()) {
+                        $localPage->restore();
+                    }
+                    $localPage->update($updateData);
+                } else {
+                    $updateData['client_id'] = $pageData['client_id']; // Set client_id for new page
+                    $localPage = Page::create($updateData);
+                }
                 
-                $page->save();
+                // 7. Broadcast and OCR Dispatch
+                broadcast(new PageUpdated($localPage))->toOthers();
 
-                // 4. Broadcast
-                broadcast(new SyncRequested('page.updated', $page, $notebook->id))->toOthers();
-
-                // Disparar OCR se necessário
-                if (!empty($pageData['stroke_data']) && empty($page->extracted_text)) {
+                if (!empty($pageData['stroke_data']) && empty($localPage->extracted_text)) {
                     try {
-                        ProcessPageOcr::dispatch($page->id);
+                        ProcessPageOcr::dispatch($localPage->id);
                     } catch (\Throwable $e) {
-                        Log::error('Erro ao despachar o Job ProcessPageOcr.', ['page_id' => $page->id, 'error' => $e->getMessage()]);
+                        Log::error('Erro ao despachar o Job ProcessPageOcr.', ['page_id' => $localPage->id, 'error' => $e->getMessage()]);
                     }
                 }
 
                 $syncedPages[] = [
-                    'client_id'   => $page->client_id,
-                    'server_id'   => $page->id,
-                    'page_number' => $page->page_number
+                    'client_id'   => $localPage->client_id,
+                    'server_id'   => $localPage->id,
+                    'page_number' => $localPage->page_number
                 ];
             }
         });

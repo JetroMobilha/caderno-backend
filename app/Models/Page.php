@@ -22,7 +22,8 @@ class Page extends Model
         'stroke_data',
         'text_data',     
         'ocr_data',
-        'image_data',    
+        'image_data',
+        'version',
     ];
      
     protected $casts = [
