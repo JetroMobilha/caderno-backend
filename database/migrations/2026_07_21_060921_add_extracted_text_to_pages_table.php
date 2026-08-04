@@ -15,10 +15,13 @@ return new class extends Migration
     {
         Schema::table('pages', function (Blueprint $table) {
             // 1. Garantir que a coluna usa utf8mb4 (suporta acentos perfeitos e emojis)
-            $table->text('extracted_text')
+            $column = $table->text('extracted_text')
                   ->nullable()
-                  ->collation('utf8mb4_unicode_ci')
                   ->after('footer_data');
+
+            if (DB::getDriverName() !== 'sqlite') {
+                $column->collation('utf8mb4_unicode_ci');
+            }
 
             // 2. Criar o índice Full-Text nativo (apenas para MySQL)
             if (DB::getDriverName() === 'mysql') {
