@@ -180,26 +180,24 @@ class SyncController extends Controller
                 $notebook = Notebook::find($notebookId);
                 if (!$notebook) continue;
 
-                // 🚀 DETERMINAÇÃO DE ROLE (Dono, Editor ou Aluno)
+                // 🎯 Identificar permissão
                 $userRole = 'student'; 
                 if ($notebook->subject && $notebook->subject->user_id === $user->id) {
                     $userRole = 'owner';
                 } else {
-                    $pivot = DB::table('notebook_user')
-                            ->where('notebook_id', $notebook->id)
-                            ->where('user_id', $user->id)
-                            ->first();
+                    $pivot = DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->first();
                     $userRole = $pivot ? $pivot->role : 'student';
                 }
 
                 if ($userRole === 'viewer') continue;
 
+                // 🚀 Lógica LWW Corrigida para milissegundos
                 if ($localPage) {
                     $incomingVersion = (int)($pageData['version'] ?? 1);
-                    $incomingTimestamp = isset($pageData['updated_at']) ? strtotime($pageData['updated_at']) : 0;
-                    $localTimestamp = strtotime($localPage->updated_at);
+                    $incomingTime = (int)($pageData['updated_at'] ?? 0);
+                    $localTime = $localPage->updated_at_ms ?? (strtotime($localPage->updated_at) * 1000);
 
-                    if ($incomingVersion < $localPage->version || ($incomingVersion == $localPage->version && $incomingTimestamp <= $localTimestamp)) {
+                    if ($incomingVersion < $localPage->version || ($incomingVersion == $localPage->version && $incomingTime <= $localTime)) {
                         $syncedPages[] = ['client_id' => $localPage->client_id, 'server_id' => $localPage->id, 'status' => 'ignored_old'];
                         continue;
                     }
@@ -213,11 +211,17 @@ class SyncController extends Controller
                     continue;
                 }
 
+                // 🚀 Conversão do Timestamp para o MySQL
+                $dbDate = isset($pageData['updated_at']) 
+                    ? date('Y-m-d H:i:s', (int)($pageData['updated_at'] / 1000)) 
+                    : now();
+
                 $updateData = [
                     'notebook_id'   => $notebook->id,
                     'page_number'   => $pageData['page_number'],
                     'version'       => $pageData['version'],
-                    'updated_at'    => $pageData['updated_at'] ?? now(),
+                    'updated_at'    => $dbDate,
+                    'updated_at_ms' => $pageData['updated_at'] ?? null, // Guardar precisão ms
                     'is_landscape'  => !empty($pageData['is_landscape']) ? 1 : 0,
                     'header_data'   => $pageData['header_data'] ?? ['title' => ''],
                     'footer_data'   => $pageData['footer_data'] ?? ['title' => ''],
@@ -225,11 +229,11 @@ class SyncController extends Controller
                     'deleted_at'    => null, 
                 ];
                 
-                // 🚀 MERGE COM PROTEÇÃO DE CRIADOR (CHAMA O MODEL PAGE)
+                // Sincronizar itens internos
                 $updateData['stroke_data'] = Page::mergeJsonItems($localPage->stroke_data ?? [], $this->parseClientArray($pageData['stroke_data'] ?? []), $user->id, $userRole);
                 $updateData['text_data']   = Page::mergeJsonItems($localPage->text_data ?? [], $this->parseClientArray($pageData['text_data'] ?? []), $user->id, $userRole);
                 
-                // Processamento de Imagens
+                // Imagens
                 $processedImages = [];
                 foreach ($this->parseClientArray($pageData['image_data'] ?? []) as $img) {
                     if (!empty($img['image_base64'])) {
