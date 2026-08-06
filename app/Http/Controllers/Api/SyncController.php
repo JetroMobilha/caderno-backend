@@ -171,109 +171,95 @@ class SyncController extends Controller
 
         DB::transaction(function () use ($user, $clientPages, &$syncedPages) {
             foreach ($clientPages as $pageData) {
-                // 1. Validate incoming data
-                if (empty($pageData['client_id']) || !isset($pageData['version'])) {
-                    continue;
-                }
+                if (empty($pageData['client_id']) || !isset($pageData['version'])) continue;
 
-                // 2. Find local page (including soft-deleted ones)
                 $localPage = Page::withTrashed()->where('client_id', $pageData['client_id'])->first();
+                $notebookId = $localPage ? $localPage->notebook_id : ($pageData['notebook_id'] ?? null);
+                if (!$notebookId) continue;
 
-                // 3. Authorization Check
-                $notebookId = $localPage->notebook_id ?? $pageData['notebook_id'];
                 $notebook = Notebook::find($notebookId);
                 if (!$notebook) continue;
 
-                $isOwner = $notebook->subject->user_id === $user->id;
-                $isEditor = $notebook->sharedUsers()->where('user_id', $user->id)->whereIn('role', ['editor'])->exists();
-                if (!$isOwner && !$isEditor) continue;
+                // 🚀 DETERMINAÇÃO DE ROLE (Dono, Editor ou Aluno)
+                $userRole = 'student'; 
+                if ($notebook->subject && $notebook->subject->user_id === $user->id) {
+                    $userRole = 'owner';
+                } else {
+                    $pivot = DB::table('notebook_user')
+                            ->where('notebook_id', $notebook->id)
+                            ->where('user_id', $user->id)
+                            ->first();
+                    $userRole = $pivot ? $pivot->role : 'student';
+                }
 
-                // 4. LWW Conflict Resolution (Version + Timestamp)
+                if ($userRole === 'viewer') continue;
+
                 if ($localPage) {
                     $incomingVersion = (int)($pageData['version'] ?? 1);
                     $incomingTimestamp = isset($pageData['updated_at']) ? strtotime($pageData['updated_at']) : 0;
                     $localTimestamp = strtotime($localPage->updated_at);
 
-                    $isIncomingNewer = ($incomingVersion > $localPage->version) ||
-                                       ($incomingVersion == $localPage->version && $incomingTimestamp > $localTimestamp);
-
-                    if (!$isIncomingNewer) {
-                        continue; // Server version is newer or same, so we ignore the client's push.
+                    if ($incomingVersion < $localPage->version || ($incomingVersion == $localPage->version && $incomingTimestamp <= $localTimestamp)) {
+                        $syncedPages[] = ['client_id' => $localPage->client_id, 'server_id' => $localPage->id, 'status' => 'ignored_old'];
+                        continue;
                     }
                 }
                 
-                // 5. Handle Soft Deletes (Tombstone)
                 if (!empty($pageData['is_deleted']) && $pageData['is_deleted'] == 1) {
                     if ($localPage && !$localPage->trashed()) {
-                        $localPage->version = $pageData['version']; // Bump version on delete
+                        $localPage->update(['version' => $pageData['version']]);
                         $localPage->delete();
-                        broadcast(new PageDeleted($localPage))->toOthers();
                     }
-                    continue; // Move to next page
+                    continue;
                 }
 
-                // 6. Create or Update Logic
                 $updateData = [
                     'notebook_id'   => $notebook->id,
                     'page_number'   => $pageData['page_number'],
                     'version'       => $pageData['version'],
                     'updated_at'    => $pageData['updated_at'] ?? now(),
-                    'updated_at_ms' => $pageData['updated_at_ms'] ?? null,
                     'is_landscape'  => !empty($pageData['is_landscape']) ? 1 : 0,
                     'header_data'   => $pageData['header_data'] ?? ['title' => ''],
                     'footer_data'   => $pageData['footer_data'] ?? ['title' => ''],
                     'extracted_text'=> $pageData['extracted_text'] ?? null,
-                    'deleted_at'    => null, // Explicitly set deleted_at to null for updates/restores
+                    'deleted_at'    => null, 
                 ];
                 
-                // Merge JSON content
-                $updateData['stroke_data'] = Page::mergeJsonItems($localPage->stroke_data ?? [], $this->parseClientArray($pageData['stroke_data'] ?? []));
-                $updateData['text_data'] = Page::mergeJsonItems($localPage->text_data ?? [], $this->parseClientArray($pageData['text_data'] ?? []));
+                // 🚀 MERGE COM PROTEÇÃO DE CRIADOR (CHAMA O MODEL PAGE)
+                $updateData['stroke_data'] = Page::mergeJsonItems($localPage->stroke_data ?? [], $this->parseClientArray($pageData['stroke_data'] ?? []), $user->id, $userRole);
+                $updateData['text_data']   = Page::mergeJsonItems($localPage->text_data ?? [], $this->parseClientArray($pageData['text_data'] ?? []), $user->id, $userRole);
                 
-                // Process and merge images
+                // Processamento de Imagens
                 $processedImages = [];
                 foreach ($this->parseClientArray($pageData['image_data'] ?? []) as $img) {
-                     if (!empty($img['image_base64'])) {
+                    if (!empty($img['image_base64'])) {
                         $decoded = base64_decode($img['image_base64']);
-                        $filename = 'img_' . uniqid() . '.png';
+                        $filename = 'img_' . Str::random(10) . '_' . time() . '.png';
                         Storage::disk('public')->put('notebook_images/' . $filename, $decoded);
                         $img['image_path'] = asset('storage/notebook_images/' . $filename);
                         unset($img['image_base64']);
                     }
                     $processedImages[] = $img;
                 }
-                $updateData['image_data'] = Page::mergeJsonItems($localPage->image_data ?? [], $processedImages);
+                $updateData['image_data'] = Page::mergeJsonItems($localPage->image_data ?? [], $processedImages, $user->id, $userRole);
 
                 if ($localPage) {
-                    if($localPage->trashed()) {
-                        $localPage->restore();
-                    }
+                    if($localPage->trashed()) $localPage->restore();
                     $localPage->update($updateData);
                 } else {
-                    $updateData['client_id'] = $pageData['client_id']; // Set client_id for new page
+                    $updateData['client_id'] = $pageData['client_id'];
                     $localPage = Page::create($updateData);
                 }
                 
-                // 7. Broadcast and OCR Dispatch
-                broadcast(new PageUpdated($localPage))->toOthers();
-
                 if (!empty($pageData['stroke_data']) && empty($localPage->extracted_text)) {
-                    try {
-                        ProcessPageOcr::dispatch($localPage->id);
-                    } catch (\Throwable $e) {
-                        Log::error('Erro ao despachar o Job ProcessPageOcr.', ['page_id' => $localPage->id, 'error' => $e->getMessage()]);
-                    }
+                    try { ProcessPageOcr::dispatch($localPage->id); } catch (\Exception $e) { Log::error($e->getMessage()); }
                 }
 
-                $syncedPages[] = [
-                    'client_id'   => $localPage->client_id,
-                    'server_id'   => $localPage->id,
-                    'page_number' => $localPage->page_number
-                ];
+                $syncedPages[] = ['client_id' => $localPage->client_id, 'server_id' => $localPage->id, 'page_number' => $localPage->page_number];
             }
         });
 
-        return response()->json(['message' => 'Páginas sincronizadas com sucesso.', 'synced_pages' => $syncedPages]);
+        return response()->json(['message' => 'OK', 'synced_pages' => $syncedPages]);
     }
 
     private function parseClientArray($data) {

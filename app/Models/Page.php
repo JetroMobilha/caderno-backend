@@ -24,6 +24,8 @@ class Page extends Model
         'ocr_data',
         'image_data',
         'version',
+        'paper_size',
+        'background_image_path',
     ];
      
     protected $casts = [
@@ -41,8 +43,18 @@ class Page extends Model
         return $this->belongsTo(Notebook::class);
     }
 
-    public static function mergeJsonItems($oldData, $newItems)
+    /**
+     * Funde os itens JSON (strokes, text, images) garantindo a integridade dos dados.
+     * 
+     * @param mixed $oldData Dados atualmente no banco de dados.
+     * @param mixed $newItems Dados vindos do cliente (App Flutter).
+     * @param mixed $userId ID do utilizador que enviou os dados.
+     * @param string $userRole Papel do utilizador no caderno ('owner', 'editor', 'student').
+     * @return array
+     */
+    public static function mergeJsonItems($oldData, $newItems, $userId = null, $userRole = 'student')
     {
+        // Normalização dos dados de entrada
         $oldItems = is_array($oldData) ? $oldData : json_decode($oldData, true) ?? [];
         $newItems = is_array($newItems) ? $newItems : json_decode($newItems, true) ?? [];
 
@@ -54,18 +66,39 @@ class Page extends Model
 
             if ($merged->has($id)) {
                 $oldItem = $merged->get($id);
-                // 🚀 REGRA LWW: O maior timestamp (milissegundos) vence.
+                
+                // 🛡️ TRAVA DE SEGURANÇA:
+                // Apenas o 'owner' ou 'editor' podem mexer em objetos de outros.
+                // O 'student' só pode mexer no que ele próprio criou.
+                $isOwnerOfItem = ($oldItem['creator_id'] ?? null) == $userId;
+                $canEditEverything = in_array($userRole, ['owner', 'editor']);
+
+                if (!$canEditEverything && !$isOwnerOfItem) {
+                    // O aluno tentou mexer em algo do professor: Ignoramos a alteração.
+                    continue;
+                }
+
+                // 🚀 REGRA LWW (Last-Write-Wins): O maior timestamp vence.
                 $oldTime = $oldItem['updated_at'] ?? 0;
                 $newTime = $newItem['updated_at'] ?? 0;
 
                 if ($newTime >= $oldTime) {
+                    // 🛡️ PRESERVAÇÃO DE PROPRIEDADE:
+                    // Impedimos que o creator_id seja alterado no upload para evitar "roubo" de autoria.
+                    $newItem['creator_id'] = $oldItem['creator_id'] ?? $newItem['creator_id'] ?? (string)$userId;
                     $merged->put($id, $newItem);
                 }
             } else {
+                // ITEM NOVO: 
+                // Se o App não mandou o creator_id (ex: traço acabado de fazer), o servidor atribui o ID do utilizador atual.
+                if (empty($newItem['creator_id'])) {
+                    $newItem['creator_id'] = (string)$userId;
+                }
                 $merged->put($id, $newItem);
             }
         }
 
+        // Retorna a lista fundida e limpa
         return $merged->values()->all();
     }
 
