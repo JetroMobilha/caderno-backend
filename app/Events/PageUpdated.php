@@ -50,7 +50,7 @@ class PageUpdated implements ShouldBroadcastNow
     public function broadcastWith(): array
     {
         // Return the entire page model, which will be serialized to JSON.
-        // This ensures the 'version' field is included.
+        // This ensures high-precision timestamps (updated_at_ms) are included.
         return [
             'page' => $this->page->toArray(),
         ];

@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Models\Subject;
 use App\Models\Notebook;
-use App\Models\Page;  
+use App\Models\Page;
 use App\Events\PageDeleted;
 use App\Events\PageUpdated;
 use App\Events\SyncRequested;
@@ -28,29 +28,39 @@ class SyncController extends Controller
         $syncedSubjects = [];
 
         foreach ($clientSubjects as $data) {
-            // 🗑️ Deleção (Igual)
-            if (!empty($data['is_deleted']) && $data['is_deleted'] == 1) {
-                Subject::where('user_id', $user->id)->where('client_id', $data['client_id'])->delete();
-                continue;
-            }
+            $incomingTime = (int)($data['updated_at'] ?? 0);
 
             // 🎯 BUSCA HÍBRIDA: Tenta ID do Servidor primeiro, depois o UUID
             $subject = null;
             if (!empty($data['server_id'])) {
-                $subject = Subject::where('user_id', $user->id)->find($data['server_id']);
+                $subject = Subject::withTrashed()->where('user_id', $user->id)->find($data['server_id']);
             }
             if (!$subject) {
-                $subject = Subject::where('user_id', $user->id)->where('client_id', $data['client_id'])->first();
+                $subject = Subject::withTrashed()->where('user_id', $user->id)->where('client_id', $data['client_id'])->first();
+            }
+
+            // 🗑️ Deleção LWW
+            if (!empty($data['is_deleted']) && $data['is_deleted'] == 1) {
+                if ($subject && !$subject->trashed() && $incomingTime > ($subject->updated_at_ms ?? 0)) {
+                    $subject->update(['updated_at_ms' => $incomingTime]);
+                    $subject->delete();
+                }
+                continue;
             }
 
             // Se encontrou, atualiza. Se não, cria.
             if ($subject) {
-                $subject->update([
-                    'client_id' => $data['client_id'], // 🚀 Migra o UUID se estiver NULL
-                    'name'      => trim($data['name'] ?? $subject->name),
-                    'color'     => $data['color'] ?? $subject->color,
-                    'icon'      => $data['icon'] ?? $subject->icon,
-                ]);
+                // 🚀 LWW
+                if ($incomingTime >= ($subject->updated_at_ms ?? 0)) {
+                    if ($subject->trashed()) $subject->restore();
+                    $subject->update([
+                        'client_id' => $data['client_id'],
+                        'name'      => trim($data['name'] ?? $subject->name),
+                        'color'     => $data['color'] ?? $subject->color,
+                        'icon'      => $data['icon'] ?? $subject->icon,
+                        'updated_at_ms' => $incomingTime,
+                    ]);
+                }
             } else {
                 $subject = Subject::create([
                     'user_id'   => $user->id,
@@ -58,6 +68,7 @@ class SyncController extends Controller
                     'name'      => trim($data['name'] ?? 'Nova Disciplina'),
                     'color'     => $data['color'] ?? '#000000',
                     'icon'      => $data['icon'] ?? 'default-icon',
+                    'updated_at_ms' => $incomingTime,
                 ]);
             }
 
@@ -94,32 +105,45 @@ class SyncController extends Controller
         $syncedNotebooks = [];
 
         foreach ($request->input('notebooks', []) as $data) {
-            // 🗑️ Deleção (Igual)
-            if (!empty($data['is_deleted']) && $data['is_deleted'] == 1) {
-                $n = Notebook::where('client_id', $data['client_id'])->first();
-                if ($n && $n->subject->user_id == $user->id) $n->delete();
-                continue;
-            }
+            $incomingTime = (int)($data['updated_at'] ?? 0);
 
             // 🎯 BUSCA HÍBRIDA
             $notebook = null;
             if (!empty($data['server_id'])) {
-                $notebook = Notebook::find($data['server_id']);
+                $notebook = Notebook::withTrashed()->find($data['server_id']);
             }
             if (!$notebook) {
-                $notebook = Notebook::where('client_id', $data['client_id'])->first();
+                $notebook = Notebook::withTrashed()->where('client_id', $data['client_id'])->first();
+            }
+
+            // 🗑️ Deleção LWW
+            if (!empty($data['is_deleted']) && $data['is_deleted'] == 1) {
+                if ($notebook && !$notebook->trashed()) {
+                    if ($notebook->subject && $notebook->subject->user_id == $user->id) {
+                        if ($incomingTime > ($notebook->updated_at_ms ?? 0)) {
+                            $notebook->update(['updated_at_ms' => $incomingTime]);
+                            $notebook->delete();
+                        }
+                    }
+                }
+                continue;
             }
 
             $updateData = [
-                'client_id'  => $data['client_id'], // 🚀 Migra o UUID
+                'client_id'  => $data['client_id'],
                 'subject_id' => $data['subject_id'],
                 'title'      => $data['title'] ?? '',
                 'line_type'  => $data['line_type'] ?? 'ruled',
                 'paper_size' => $data['paper_size'] ?? 'A4',
+                'updated_at_ms' => $incomingTime,
             ];
 
             if ($notebook) {
-                $notebook->update($updateData);
+                // 🚀 LWW
+                if ($incomingTime >= ($notebook->updated_at_ms ?? 0)) {
+                    if ($notebook->trashed()) $notebook->restore();
+                    $notebook->update($updateData);
+                }
             } else {
                 $notebook = Notebook::create($updateData);
             }
@@ -171,7 +195,7 @@ class SyncController extends Controller
 
         DB::transaction(function () use ($user, $clientPages, &$syncedPages) {
             foreach ($clientPages as $pageData) {
-                if (empty($pageData['client_id']) || !isset($pageData['version'])) continue;
+                if (empty($pageData['client_id'])) continue;
 
                 $localPage = Page::withTrashed()->where('client_id', $pageData['client_id'])->first();
                 $notebookId = $localPage ? $localPage->notebook_id : ($pageData['notebook_id'] ?? null);
@@ -181,58 +205,56 @@ class SyncController extends Controller
                 if (!$notebook) continue;
 
                 // 🎯 Identificar permissão
-                $userRole = 'student'; 
+                $userRole = 'student';
                 if ($notebook->subject && $notebook->subject->user_id === $user->id) {
                     $userRole = 'owner';
                 } else {
                     $pivot = DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->first();
-                    $userRole = $pivot ? $pivot->role : 'student';
+                    $userRole = $pivot ? $pivot->role : 'viewer';
                 }
 
                 if ($userRole === 'viewer') continue;
 
                 // 🚀 Lógica LWW Corrigida para milissegundos
                 if ($localPage) {
-                    $incomingVersion = (int)($pageData['version'] ?? 1);
                     $incomingTime = (int)($pageData['updated_at'] ?? 0);
                     $localTime = $localPage->updated_at_ms ?? (strtotime($localPage->updated_at) * 1000);
 
-                    if ($incomingVersion < $localPage->version || ($incomingVersion == $localPage->version && $incomingTime <= $localTime)) {
+                    if ($incomingTime <= $localTime) {
                         $syncedPages[] = ['client_id' => $localPage->client_id, 'server_id' => $localPage->id, 'status' => 'ignored_old'];
                         continue;
                     }
                 }
-                
+
                 if (!empty($pageData['is_deleted']) && $pageData['is_deleted'] == 1) {
                     if ($localPage && !$localPage->trashed()) {
-                        $localPage->update(['version' => $pageData['version']]);
+                        $localPage->update(['updated_at_ms' => $pageData['updated_at'] ?? null]);
                         $localPage->delete();
                     }
                     continue;
                 }
 
                 // 🚀 Conversão do Timestamp para o MySQL
-                $dbDate = isset($pageData['updated_at']) 
-                    ? date('Y-m-d H:i:s', (int)($pageData['updated_at'] / 1000)) 
+                $dbDate = isset($pageData['updated_at'])
+                    ? date('Y-m-d H:i:s', (int)($pageData['updated_at'] / 1000))
                     : now();
 
                 $updateData = [
                     'notebook_id'   => $notebook->id,
                     'page_number'   => $pageData['page_number'],
-                    'version'       => $pageData['version'],
                     'updated_at'    => $dbDate,
                     'updated_at_ms' => $pageData['updated_at'] ?? null, // Guardar precisão ms
                     'is_landscape'  => !empty($pageData['is_landscape']) ? 1 : 0,
                     'header_data'   => $pageData['header_data'] ?? ['title' => ''],
                     'footer_data'   => $pageData['footer_data'] ?? ['title' => ''],
                     'extracted_text'=> $pageData['extracted_text'] ?? null,
-                    'deleted_at'    => null, 
+                    'deleted_at'    => null,
                 ];
-                
+
                 // Sincronizar itens internos
                 $updateData['stroke_data'] = Page::mergeJsonItems($localPage->stroke_data ?? [], $this->parseClientArray($pageData['stroke_data'] ?? []), $user->id, $userRole);
                 $updateData['text_data']   = Page::mergeJsonItems($localPage->text_data ?? [], $this->parseClientArray($pageData['text_data'] ?? []), $user->id, $userRole);
-                
+
                 // Imagens
                 $processedImages = [];
                 foreach ($this->parseClientArray($pageData['image_data'] ?? []) as $img) {
@@ -254,7 +276,7 @@ class SyncController extends Controller
                     $updateData['client_id'] = $pageData['client_id'];
                     $localPage = Page::create($updateData);
                 }
-                
+
                 if (!empty($pageData['stroke_data']) && empty($localPage->extracted_text)) {
                     try { ProcessPageOcr::dispatch($localPage->id); } catch (\Exception $e) { Log::error($e->getMessage()); }
                 }
@@ -275,7 +297,7 @@ class SyncController extends Controller
     /**
      * 🛡️ Garante que os dados (Header/Footer) se tornam sempre numa string JSON válida para o MySQL.
      */
-    private function normalizeJsonColumn($data, $fallback = []): string 
+    private function normalizeJsonColumn($data, $fallback = []): string
     {
         if (is_null($data) || $data === '') {
             return json_encode($fallback, JSON_UNESCAPED_UNICODE);

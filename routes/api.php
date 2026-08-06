@@ -59,6 +59,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/notebooks/{notebook}', [NotebookController::class, 'update']);
     Route::delete('/notebooks/{notebook}', [NotebookController::class, 'destroy']);
     Route::get('/notebooks/{notebook}/export-pdf', [NotebookController::class, 'exportPdf']);
+    Route::post('/notebooks/import-pdf', [NotebookController::class, 'importPdf']);
 
     // 🤝 Cadernos Partilhados (Ações EdTech)
     Route::get('/notebooks/shared/unread-count', function (Request $request) {

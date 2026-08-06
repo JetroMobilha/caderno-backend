@@ -4,36 +4,35 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes; 
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
 class Page extends Model
 {
     use HasFactory,SoftDeletes;
     protected $fillable = [
-        'notebook_id', 
+        'notebook_id',
         'page_number',
-        'client_id', 
+        'client_id',
         'updated_at_ms',
-        'is_landscape',  
+        'is_landscape',
         'header_data',
         'footer_data',
-        'extracted_text',  
+        'extracted_text',
         'stroke_data',
-        'text_data',     
+        'text_data',
         'ocr_data',
         'image_data',
-        'version',
         'paper_size',
         'background_image_path',
     ];
-     
+
     protected $casts = [
-        'is_landscape' => 'boolean', 
+        'is_landscape' => 'boolean',
         'stroke_data'  => 'array',
-        'text_data'    => 'array',    
+        'text_data'    => 'array',
         'ocr_data'     => 'array',
-        'image_data'   => 'array',    
+        'image_data'   => 'array',
         'header_data'  => 'array',
         'footer_data'  => 'array',
     ];
@@ -45,7 +44,7 @@ class Page extends Model
 
     /**
      * Funde os itens JSON (strokes, text, images) garantindo a integridade dos dados.
-     * 
+     *
      * @param mixed $oldData Dados atualmente no banco de dados.
      * @param mixed $newItems Dados vindos do cliente (App Flutter).
      * @param mixed $userId ID do utilizador que enviou os dados.
@@ -65,7 +64,7 @@ class Page extends Model
 
             if ($merged->has($id)) {
                 $oldItem = $merged->get($id);
-                
+
                 // 🛡️ Segurança: Aluno não apaga/move o que é do Professor
                 $isOwnerOfItem = ($oldItem['creator_id'] ?? null) == $userId;
                 $canEditEverything = in_array($userRole, ['owner', 'editor']);

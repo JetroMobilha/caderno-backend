@@ -8,6 +8,9 @@ use App\Models\Subject;
 use App\Models\Notebook;
 use App\Models\User;
 use App\Events\SyncRequested;
+use Spatie\PdfToImage\Pdf;
+use Illuminate\Support\Facades\Storage;
+use App\Models\Page;
 
 class NotebookController extends Controller
 {
@@ -105,6 +108,59 @@ class NotebookController extends Controller
         $notebook->delete();
         \App\Events\SyncRequested::dispatch($request->user()->id);
         return response()->json(['message' => 'Apagado.']);
+    }
+
+    // =========================================================================
+    // 🖨️ IMPORTAR CADERNO A PARTIR DE PDF
+    // =========================================================================
+    public function importPdf(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:pdf|max:25600', // max 25MB
+            'subject_id' => 'required|integer|exists:subjects,id'
+        ]);
+        
+        $user = $request->user();
+        $subject = $user->subjects()->findOrFail($request->subject_id);
+        $file = $request->file('file');
+
+        // 1. Criar o caderno
+        $notebook = $subject->notebooks()->create([
+            'title' => pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME),
+            'user_id' => $user->id, // Associar ao usuário
+        ]);
+
+        // 2. Preparar para processar o PDF
+        $pdf = new Pdf($file->getRealPath());
+        $totalPages = $pdf->getNumberOfPages();
+        
+        // Diretório para as imagens de fundo
+        $storagePath = "public/notebooks/{$notebook->id}/backgrounds";
+        if(!Storage::exists($storagePath)) {
+            Storage::makeDirectory($storagePath);
+        }
+
+        // 3. Processar cada página
+        for ($i = 1; $i <= $totalPages; $i++) {
+            $imageName = "page_{$i}.png";
+            $imagePath = storage_path("app/{$storagePath}/{$imageName}");
+            
+            $pdf->setPage($i)->saveImage($imagePath);
+
+            // 4. Criar a página no banco de dados
+            $notebook->pages()->create([
+                'page_number' => $i,
+                'background_image_path' => "notebooks/{$notebook->id}/backgrounds/{$imageName}", // Caminho relativo para o asset
+                'paper_size' => null, // paper_size pode ser extraído se a biblioteca suportar ou definido como null
+            ]);
+        }
+
+        // Carregar as páginas recém-criadas para a resposta
+        $notebook->load('pages');
+        
+        SyncRequested::dispatch($user->id);
+
+        return response()->json($notebook, 201);
     }
 
     // =========================================================================

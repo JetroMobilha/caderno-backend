@@ -4,7 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;  
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Subject extends Model
 {
@@ -16,6 +16,7 @@ class Subject extends Model
         'name',
         'color',
         'icon',
+        'updated_at_ms',
     ];
 
     // Uma disciplina pertence a um utilizador

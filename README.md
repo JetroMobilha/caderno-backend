@@ -10,6 +10,7 @@ Este backend foi desenvolvido em **Laravel 10** e fornece uma API RESTful rápid
 
 * 🔐 **Autenticação Segura:** Registo, Login e gestão de sessões via Laravel Sanctum.
 * 📂 **Organização Hierárquica:** Gestão de Disciplinas (Subjects) e Cadernos (Notebooks).
+* 🖨️ **Importação de PDF para Caderno:** Converte arquivos PDF em novos cadernos, com cada página do PDF se tornando uma página do caderno. (Ver [docs/flutter_pdf_import_guide.md](docs/flutter_pdf_import_guide.md) para detalhes de integração.)
 * ✍️ **Sincronização Ultrarrápida:** Motor de desenho que guarda traços (strokes) em formato JSON, concebido para gastar o mínimo de dados móveis possível.
 * 🤝 **Colaboração em Tempo Real:** Sistema de partilha de cadernos com permissões avançadas (Viewer / Editor).
 * 💰 **Integração com Multicaixa:** Preparado para pagamentos locais em Kwanzas via referência Multicaixa para subscrições do Plano Pro.

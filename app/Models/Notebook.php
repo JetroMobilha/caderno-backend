@@ -4,7 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;  
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Notebook extends Model
 {
@@ -13,16 +13,16 @@ class Notebook extends Model
     protected $fillable = [
         'client_id',
         'subject_id',
-        'title', 
+        'title',
         'cover_type',
         'color',
         'cover_image',
         'line_type',
         'paper_size',
         'line_spacing',
-        'version',
+        'updated_at_ms',
     ];
-    
+
     // Um caderno pertence a uma disciplina
     public function subject() {
         return $this->belongsTo(Subject::class);
