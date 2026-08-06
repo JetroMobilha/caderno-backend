@@ -197,9 +197,18 @@ class SyncController extends Controller
             foreach ($clientPages as $pageData) {
                 if (empty($pageData['client_id'])) continue;
 
+                // 🚀 BUSCA ESTRICTA: O Client ID é a âncora absoluta de identidade.
                 $localPage = Page::withTrashed()->where('client_id', $pageData['client_id'])->first();
-                $notebookId = $localPage ? $localPage->notebook_id : ($pageData['notebook_id'] ?? null);
+
+                $notebookId = $pageData['notebook_id'] ?? ($localPage ? $localPage->notebook_id : null);
                 if (!$notebookId) continue;
+
+                // 🛡️ VALIDAÇÃO DE INTEGRIDADE: Uma folha não pode saltar de caderno.
+                if ($localPage && $localPage->notebook_id != $notebookId) {
+                    Log::warning("⚠️ [Sync] Tentativa de mover folha {$pageData['client_id']} do caderno {$localPage->notebook_id} para $notebookId abortada.");
+                    $syncedPages[] = ['client_id' => $pageData['client_id'], 'status' => 'conflict_notebook_mismatch'];
+                    continue;
+                }
 
                 $notebook = Notebook::find($notebookId);
                 if (!$notebook) continue;
@@ -325,6 +334,8 @@ class SyncController extends Controller
     {
         $user = $request->user();
         $lastSyncedAt = $request->query('last_synced_at');
+        $notebookId = $request->query('notebook_id');
+        $pageNumber = $request->query('page_number');
 
         $query = Page::withTrashed()->whereHas('notebook', function ($q) use ($user) {
             $q->where(function ($inner) use ($user) {
@@ -335,6 +346,14 @@ class SyncController extends Controller
                 });
             });
         });
+
+        if ($notebookId) {
+            $query->where('notebook_id', $notebookId);
+        }
+
+        if ($pageNumber) {
+            $query->where('page_number', $pageNumber);
+        }
 
         if ($lastSyncedAt) { $query->where('updated_at', '>', $lastSyncedAt); }
 
