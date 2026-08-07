@@ -36,11 +36,11 @@ Route::post('/webhooks/payment-confirmation', [PaymentController::class, 'webhoo
 |--------------------------------------------------------------------------
 */
 Route::middleware('auth:sanctum')->group(function () {
-    
+
     // 📡 WebSockets & Channels
     Broadcast::routes();
     require base_path('routes/channels.php');
-    
+
     // 👤 Perfil de Utilizador & Autenticação
     Route::get('/user', function (Request $request) { return $request->user(); });
     Route::post('/user/update', [AuthController::class, 'updateProfile']);
@@ -49,10 +49,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // 💰 Pagamentos
     Route::post('/pay/multicaixa', [PaymentController::class, 'generateReference']);
-    
+
     // 📚 Disciplinas (CRUD)
     Route::apiResource('subjects', SubjectController::class);
-    
+
     // 📓 Cadernos (CRUD Clássico e Exportação)
     Route::get('/subjects/{subject_id}/notebooks', [NotebookController::class, 'index']);
     Route::post('/subjects/{subject_id}/notebooks', [NotebookController::class, 'store']);
@@ -66,9 +66,9 @@ Route::middleware('auth:sanctum')->group(function () {
         return response()->json(['unread_shares' => $request->user()->sharedNotebooks()->count()]);
     });
     Route::get('/notebooks/{id}/collaborators', [NotebookController::class, 'getCollaborators']);
-    Route::post('/notebooks/{id}/share', [NotebookController::class, 'share']); 
-    Route::delete('/notebooks/{id}/share', [NotebookController::class, 'unshare']); 
-    
+    Route::post('/notebooks/{id}/share', [NotebookController::class, 'share']);
+    Route::delete('/notebooks/{id}/share', [NotebookController::class, 'unshare']);
+
     // ✍️ Páginas dos Cadernos
     Route::get('/notebooks/{notebook_id}/pages', [PageController::class, 'index']);
     Route::post('/notebooks/{notebook_id}/pages', [PageController::class, 'store']);
@@ -76,6 +76,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // 🎥 WebRTC (Colaboração em Tempo Real)
     Route::post('/notebooks/{notebook_id}/webrtc/signal', [WebRtcController::class, 'signal']);
     Route::post('/notebooks/{notebook}/upload-audio', [NotebookController::class, 'uploadAudio']);
+    Route::get('/notebooks/{notebook}/lesson-recordings', [NotebookController::class, 'getLessonRecordings']);
 
     // =========================================================================
     // 🚀 MOTOR DE SINCRONIZAÇÃO OFFLINE-FIRST (MOBILE/DESKTOP)
@@ -89,10 +90,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/sync/pages/push', [SyncController::class, 'pushPages']);
     Route::get('/sync/pages/pull', [SyncController::class, 'pullPages']);
 
+    Route::post('/sync/recordings/push', [SyncController::class, 'pushRecordings']);
+    Route::get('/sync/recordings/pull', [SyncController::class, 'pullRecordings']);
+
 
     // Listar e pesquisar cadernos na loja
     Route::get('/marketplace/notebooks', [MarketplaceController::class, 'index']);
-    
+
     // Adquirir (Clonar) um caderno para a conta do estudante
     Route::post('/marketplace/notebooks/{id}/acquire', [MarketplaceController::class, 'acquire']);
 

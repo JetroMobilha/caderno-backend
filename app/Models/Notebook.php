@@ -20,6 +20,7 @@ class Notebook extends Model
         'line_type',
         'paper_size',
         'line_spacing',
+        'template_type',
         'updated_at_ms',
     ];
 
@@ -30,6 +31,10 @@ class Notebook extends Model
 
     public function pages() {
         return $this->hasMany(Page::class);
+    }
+
+    public function lessonRecordings() {
+        return $this->hasMany(LessonRecording::class);
     }
 
     // Um caderno pode ser partilhado com VÁRIOS utilizadores

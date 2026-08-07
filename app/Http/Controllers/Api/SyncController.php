@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Log;
 use App\Models\Subject;
 use App\Models\Notebook;
 use App\Models\Page;
+use App\Models\LessonRecording;
 use App\Events\PageDeleted;
 use App\Events\PageUpdated;
 use App\Events\SyncRequested;
@@ -148,6 +149,7 @@ class SyncController extends Controller
                 'client_id'  => $data['client_id'],
                 'subject_id' => $data['subject_id'],
                 'title'      => $data['title'] ?? '',
+                'template_type' => $data['template_type'] ?? 'study',
                 'line_type'  => $data['line_type'] ?? 'ruled',
                 'paper_size' => $data['paper_size'] ?? 'A4',
                 'updated_at_ms' => $incomingTime,
@@ -291,6 +293,7 @@ class SyncController extends Controller
                     'updated_at'    => $dbDate,
                     'updated_at_ms' => $pageData['updated_at'] ?? null, // Guardar precisão ms
                     'is_landscape'  => !empty($pageData['is_landscape']) ? 1 : 0,
+                    'is_frozen'     => !empty($pageData['is_frozen']) ? 1 : 0,
                     'header_data'   => $pageData['header_data'] ?? ['title' => ''],
                     'footer_data'   => $pageData['footer_data'] ?? ['title' => ''],
                     'extracted_text'=> $pageData['extracted_text'] ?? null,
@@ -412,6 +415,73 @@ class SyncController extends Controller
             'data' => $paginatedPages->items(),
             'meta' => ['server_time' => now()->toIso8601String()],
             'links' => $paginatedPages->linkCollection(),
+        ]);
+    }
+
+    // =========================================================================
+    // 🎙️ 4. SINCRONIZAÇÃO DE GRAVAÇÕES DE AULA
+    // =========================================================================
+    public function pushRecordings(Request $request)
+    {
+        $user = $request->user();
+        $recordings = $request->input('recordings', []);
+        $synced = [];
+
+        foreach ($recordings as $data) {
+            if (empty($data['client_id'])) continue;
+
+            $recording = LessonRecording::withTrashed()->where('client_id', $data['client_id'])->first();
+
+            if ($recording && !empty($data['is_deleted']) && $data['is_deleted'] == 1) {
+                $recording->delete();
+                continue;
+            }
+
+            if (!$recording) {
+                $recording = LessonRecording::create([
+                    'notebook_id' => $data['notebook_id'],
+                    'client_id' => $data['client_id'],
+                    'title' => $data['title'],
+                    'audio_url' => $data['audio_url'],
+                    'duration_seconds' => $data['duration_seconds'] ?? 0,
+                    'updated_at_ms' => $data['updated_at'] ?? round(microtime(true) * 1000),
+                ]);
+            } else {
+                $incomingTime = (int)($data['updated_at'] ?? 0);
+                if ($incomingTime > ($recording->updated_at_ms ?? 0)) {
+                    $recording->update([
+                        'title' => $data['title'],
+                        'duration_seconds' => $data['duration_seconds'],
+                        'updated_at_ms' => $incomingTime,
+                    ]);
+                }
+            }
+            $synced[] = ['client_id' => $data['client_id'], 'server_id' => $recording->id];
+        }
+
+        return response()->json(['message' => 'OK', 'synced_recordings' => $synced]);
+    }
+
+    public function pullRecordings(Request $request)
+    {
+        $user = $request->user();
+        $lastSyncedAt = $request->query('last_synced_at');
+
+        $query = LessonRecording::whereHas('notebook', function ($q) use ($user) {
+            $q->whereHas('subject', function ($sub) use ($user) {
+                $sub->where('user_id', $user->id);
+            })->orWhereHas('sharedUsers', function ($sub) use ($user) {
+                $sub->where('user_id', $user->id);
+            });
+        });
+
+        if ($lastSyncedAt) {
+            $query->where('updated_at', '>', $lastSyncedAt);
+        }
+
+        return response()->json([
+            'data' => $query->get(),
+            'meta' => ['server_time' => now()->toIso8601String()]
         ]);
     }
 }

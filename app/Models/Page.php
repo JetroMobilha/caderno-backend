@@ -24,11 +24,13 @@ class Page extends Model
         'ocr_data',
         'image_data',
         'paper_size',
+        'is_frozen',
         'background_image_path',
     ];
 
     protected $casts = [
         'is_landscape' => 'boolean',
+        'is_frozen'    => 'boolean',
         'stroke_data'  => 'array',
         'text_data'    => 'array',
         'ocr_data'     => 'array',

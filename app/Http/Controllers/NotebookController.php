@@ -119,7 +119,7 @@ class NotebookController extends Controller
             'file' => 'required|file|mimes:pdf|max:25600', // max 25MB
             'subject_id' => 'required|integer|exists:subjects,id'
         ]);
-        
+
         $user = $request->user();
         $subject = $user->subjects()->findOrFail($request->subject_id);
         $file = $request->file('file');
@@ -133,7 +133,7 @@ class NotebookController extends Controller
         // 2. Preparar para processar o PDF
         $pdf = new Pdf($file->getRealPath());
         $totalPages = $pdf->getNumberOfPages();
-        
+
         // Diretório para as imagens de fundo
         $storagePath = "public/notebooks/{$notebook->id}/backgrounds";
         if(!Storage::exists($storagePath)) {
@@ -144,7 +144,7 @@ class NotebookController extends Controller
         for ($i = 1; $i <= $totalPages; $i++) {
             $imageName = "page_{$i}.png";
             $imagePath = storage_path("app/{$storagePath}/{$imageName}");
-            
+
             $pdf->setPage($i)->saveImage($imagePath);
 
             // 4. Criar a página no banco de dados
@@ -157,7 +157,7 @@ class NotebookController extends Controller
 
         // Carregar as páginas recém-criadas para a resposta
         $notebook->load('pages');
-        
+
         SyncRequested::dispatch($user->id);
 
         return response()->json($notebook, 201);
@@ -209,7 +209,7 @@ class NotebookController extends Controller
         // Busca todos os convidados na tabela pivô
         $collaborators = DB::table('users')
             // 🚀 CORREÇÃO AQUI: users.id cruza com notebook_user.user_id !
-            ->join('notebook_user', 'users.id', '=', 'notebook_user.user_id') 
+            ->join('notebook_user', 'users.id', '=', 'notebook_user.user_id')
             ->where('notebook_user.notebook_id', $notebook->id)
             ->select('users.name', 'users.email', 'notebook_user.role')
             ->get();
@@ -245,8 +245,31 @@ class NotebookController extends Controller
     }
 
     public function uploadAudio(Request $request, Notebook $notebook) {
-        $request->validate(['audio' => 'required|file']);
-        $path = $request->file('audio')->store('notebook_audio', 'public');
-        return response()->json(['url' => asset('storage/' . $path)]);
+        $request->validate([
+            'audio' => 'required|file',
+            'title' => 'nullable|string|max:255',
+            'duration' => 'nullable|integer',
+            'client_id' => 'nullable|string',
+        ]);
+
+        $path = $request->file('audio')->store('lesson_recordings', 'public');
+        $audioUrl = asset('storage/' . $path);
+
+        // Se for uma gravação de aula (com título), criamos o registro na nova tabela
+        if ($request->has('title')) {
+            $notebook->lessonRecordings()->create([
+                'title' => $request->title,
+                'audio_url' => $audioUrl,
+                'duration_seconds' => $request->duration ?? 0,
+                'client_id' => $request->client_id,
+                'updated_at_ms' => round(microtime(true) * 1000),
+            ]);
+        }
+
+        return response()->json(['url' => $audioUrl]);
+    }
+
+    public function getLessonRecordings(Notebook $notebook) {
+        return response()->json($notebook->lessonRecordings);
     }
 }
