@@ -41,7 +41,7 @@ class PageUpdated implements ShouldBroadcastNow
      */
     public function broadcastAs(): string
     {
-        return 'page.updated';
+        return 'PageUpdated';
     }
 
     /**
@@ -49,10 +49,13 @@ class PageUpdated implements ShouldBroadcastNow
      */
     public function broadcastWith(): array
     {
-        // Return the entire page model, which will be serialized to JSON.
-        // This ensures high-precision timestamps (updated_at_ms) are included.
+        // 🚀 SINALIZAÇÃO LEVE: Enviamos apenas o essencial para o App saber o que atualizar.
+        // Evitamos enviar stroke_data/image_data para não sobrecarregar o Reverb.
         return [
-            'page' => $this->page->toArray(),
+            'notebook_id' => $this->page->notebook_id,
+            'page_number' => $this->page->page_number,
+            'client_id'   => $this->page->client_id,
+            'updated_at_ms' => $this->page->updated_at_ms,
         ];
     }
 }

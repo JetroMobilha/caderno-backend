@@ -116,6 +116,21 @@ class SyncController extends Controller
                 $notebook = Notebook::withTrashed()->where('client_id', $data['client_id'])->first();
             }
 
+            // 🛡️ VALIDAÇÃO DE ROLE: Apenas dono ou editor pode dar push no caderno (metadados)
+            if ($notebook) {
+                $userRole = 'student';
+                if ($notebook->subject && $notebook->subject->user_id === $user->id) {
+                    $userRole = 'owner';
+                } else {
+                    $pivot = DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->first();
+                    $userRole = $pivot ? $pivot->role : 'viewer';
+                }
+                if ($userRole === 'viewer' || $userRole === 'student') {
+                    Log::warning("⚠️ [Sync] Tentativa de push metadados do caderno {$notebook->id} por utilizador {$user->id} ($userRole) negada.");
+                    continue;
+                }
+            }
+
             // 🗑️ Deleção LWW
             if (!empty($data['is_deleted']) && $data['is_deleted'] == 1) {
                 if ($notebook && !$notebook->trashed()) {
@@ -312,6 +327,13 @@ class SyncController extends Controller
                     try { ProcessPageOcr::dispatch($localPage->id); } catch (\Exception $e) { Log::error($e->getMessage()); }
                 }
 
+                // 🚀 REATIVIDADE: Avisar outros utilizadores que a folha foi atualizada autoritativamente na nuvem
+                try {
+                    PageUpdated::dispatch($localPage);
+                } catch (\Exception $e) {
+                    Log::error("🚨 [Sync] Falha ao disparar PageUpdated para folha {$localPage->client_id}: " . $e->getMessage());
+                }
+
                 $syncedPages[] = ['client_id' => $localPage->client_id, 'server_id' => $localPage->id, 'page_number' => $localPage->page_number];
             }
         });
@@ -378,6 +400,10 @@ class SyncController extends Controller
         }
 
         if ($lastSyncedAt) { $query->where('updated_at', '>', $lastSyncedAt); }
+
+        // 🚀 ORDENAÇÃO DETERMINÍSTICA: Garante que os "chunks" de dados cheguem numa ordem
+        // que facilite a reconciliação e evite saltos de página.
+        $query->orderBy('page_number')->orderBy('client_id');
 
         // Em vez de ->get(), usamos ->paginate() para enviar os dados em "chunks"
         $paginatedPages = $query->paginate(50);
