@@ -177,8 +177,30 @@ class SyncController extends Controller
         // Pagina o resultado em vez de buscar tudo com ->get()
         $paginatedNotebooks = $query->paginate(50);
 
+        // 🚀 INJEÇÃO DE ROLE: Identificar o papel do utilizador em cada caderno para o App Flutter
+        $items = collect($paginatedNotebooks->items())->map(function ($notebook) use ($user) {
+            $role = 'viewer';
+
+            // 1. Se é o dono (através da disciplina)
+            if ($notebook->subject && $notebook->subject->user_id === $user->id) {
+                $role = 'owner';
+            } else {
+                // 2. Se é um colaborador, buscar a role na tabela pivot
+                $pivot = DB::table('notebook_user')
+                    ->where('notebook_id', $notebook->id)
+                    ->where('user_id', $user->id)
+                    ->first();
+                $role = $pivot ? $pivot->role : 'viewer';
+            }
+
+            // Converter para array e injetar a role
+            $data = $notebook->toArray();
+            $data['role'] = $role;
+            return $data;
+        });
+
         return response()->json([
-            'data' => $paginatedNotebooks->items(),
+            'data' => $items,
             'links' => $paginatedNotebooks->linkCollection(),
             'meta' => ['server_time' => now()->toIso8601String()]
         ]);
