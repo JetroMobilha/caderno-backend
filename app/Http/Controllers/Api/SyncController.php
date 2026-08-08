@@ -294,6 +294,7 @@ class SyncController extends Controller
                     'updated_at_ms' => $pageData['updated_at'] ?? null, // Guardar precisão ms
                     'is_landscape'  => !empty($pageData['is_landscape']) ? 1 : 0,
                     'is_frozen'     => !empty($pageData['is_frozen']) ? 1 : 0,
+                    'paper_size'    => $pageData['paper_size'] ?? 'A4',
                     'header_data'   => $pageData['header_data'] ?? ['title' => ''],
                     'footer_data'   => $pageData['footer_data'] ?? ['title' => ''],
                     'extracted_text'=> $pageData['extracted_text'] ?? null,
