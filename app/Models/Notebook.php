@@ -21,6 +21,7 @@ class Notebook extends Model
         'paper_size',
         'line_spacing',
         'template_type',
+        'collaboration_mode',
         'updated_at_ms',
     ];
 

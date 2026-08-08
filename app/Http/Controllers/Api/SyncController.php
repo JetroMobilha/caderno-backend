@@ -150,6 +150,7 @@ class SyncController extends Controller
                 'subject_id' => $data['subject_id'],
                 'title'      => $data['title'] ?? '',
                 'template_type' => $data['template_type'] ?? 'study',
+                'collaboration_mode' => $data['collaboration_mode'] ?? 'study_group',
                 'line_type'  => $data['line_type'] ?? 'ruled',
                 'paper_size' => $data['paper_size'] ?? 'A4',
                 'updated_at_ms' => $incomingTime,
