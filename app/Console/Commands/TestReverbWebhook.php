@@ -9,8 +9,8 @@ use App\Models\CollaborativeSession;
 
 class TestReverbWebhook extends Command
 {
-    protected $signature = 'session:test-webhook {notebook_id} {user_id}';
-    protected $description = 'Simula um webhook do Reverb para testar o rastreio de sessão';
+    protected $signature = 'session:test-webhook {notebook_id=131} {user_id=2}';
+    protected $description = 'Diagnóstico profundo do Webhook e Base de Dados';
 
     public function handle()
     {
@@ -18,45 +18,42 @@ class TestReverbWebhook extends Command
         $userId = $this->argument('user_id');
 
         $url = config('reverb.apps.apps.0.webhooks.0.url');
-        if (!$url) {
-            $this->error("❌ URL do Webhook não configurado em config/reverb.php");
-            return;
-        }
-
-        $this->info("🚀 Testando Webhook em: $url");
+        $this->info("🔍 URL configurado: $url");
 
         $payload = [
             'events' => [
-                [
-                    'name' => 'member_added',
-                    'channel' => "presence-notebook.$notebookId",
-                    'user_id' => $userId,
-                ]
+                ['name' => 'member_added', 'channel' => "presence-notebook.$notebookId", 'user_id' => $userId]
             ]
         ];
 
+        $this->warn("🚀 1. Testando chamada HTTPS (com bypass de SSL)...");
         try {
-            $response = Http::post($url, $payload);
-
-            if ($response->successful()) {
-                $this->info("✅ Servidor respondeu com sucesso (HTTP " . $response->status() . ")");
-
-                // Verificar se inseriu no banco
-                $participant = CollaborativeSessionParticipant::where('user_id', $userId)
-                    ->whereNull('left_at')
-                    ->first();
-
-                if ($participant) {
-                    $this->info("✨ SUCESSO: Utilizador encontrado na tabela de participantes!");
-                } else {
-                    $this->warn("⚠️ Servidor respondeu OK, mas o utilizador não apareceu na DB. Verifique os logs do Laravel.");
-                }
-            } else {
-                $this->error("❌ Falha na requisição: HTTP " . $response->status());
-                $this->line($response->body());
-            }
+            $response = Http::withoutVerifying()->post($url, $payload);
+            $this->line("📡 Resposta: HTTP " . $response->status());
         } catch (\Exception $e) {
-            $this->error("🚨 Erro ao tentar contactar o Webhook: " . $e->getMessage());
+            $this->error("❌ Erro na chamada: " . $e->getMessage());
         }
+
+        $this->warn("\n📊 2. Estado da Base de Dados:");
+        $activeSessions = CollaborativeSession::where('is_active', true)->count();
+        $this->line("• Sessões Ativas: $activeSessions");
+
+        $participants = CollaborativeSessionParticipant::whereNull('left_at')
+            ->with('user')
+            ->get();
+
+        if ($participants->isEmpty()) {
+            $this->error("• Nenhum utilizador online detetado na DB.");
+        } else {
+            $this->info("• Utilizadores Online (" . $participants->count() . "):");
+            foreach ($participants as $p) {
+                $userName = $p->user ? $p->user->name : "Desconhecido";
+                $this->line("  - User ID: {$p->user_id} ($userName) | Entrou: {$p->joined_at}");
+            }
+        }
+
+        $this->warn("\n💡 DICA:");
+        $this->line("Se o 'curl -k' funcionou mas o Reverb automático não funciona,");
+        $this->line("tente mudar REVERB_WEBHOOK_URL para http://127.0.0.1:porta (sem HTTPS) se o seu servidor tiver uma porta HTTP interna aberta.");
     }
 }
