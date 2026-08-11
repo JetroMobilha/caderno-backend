@@ -94,6 +94,12 @@ return [
                     'decay_seconds' => env('REVERB_APP_RATE_LIMIT_DECAY_SECONDS', 60),
                     'terminate_on_limit' => env('REVERB_APP_RATE_LIMIT_TERMINATE', false),
                 ],
+                'webhooks' => [
+                    [
+                        'url' => env('APP_URL', 'http://localhost') . '/api/webhooks/reverb',
+                        'event_types' => ['member_added', 'member_removed'],
+                    ],
+                ],
             ],
         ],
 

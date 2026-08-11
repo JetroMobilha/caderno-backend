@@ -14,9 +14,13 @@ class CollaborativeSessionController extends Controller
     {
         // 🛡️ Segurança: Validar secret do Pusher/Reverb em produção
         $events = $request->input('events', []);
+        Log::info("📡 [Webhook] Recebidos " . count($events) . " eventos do Reverb.");
 
         foreach ($events as $event) {
+            $name = $event['name'];
             $channel = $event['channel'];
+            Log::info("🔔 [Webhook] Evento: $name no canal: $channel");
+
             if (!str_starts_with($channel, 'presence-notebook.')) continue;
 
             $notebookId = str_replace('presence-notebook.', '', $channel);
