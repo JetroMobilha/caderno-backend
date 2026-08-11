@@ -96,7 +96,7 @@ return [
                 ],
                 'webhooks' => [
                     [
-                        'url' => env('APP_URL', 'http://localhost') . '/api/webhooks/reverb',
+                        'url' => env('REVERB_WEBHOOK_URL', env('APP_URL', 'http://localhost') . '/api/webhooks/reverb'),
                         'event_types' => ['member_added', 'member_removed'],
                     ],
                 ],

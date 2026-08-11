@@ -15,8 +15,12 @@ class CollaborativeSessionController extends Controller
      */
     public function webhook(Request $request)
     {
-        // 🚀 LOG TOTAL: Capturar exatamente o que o Reverb envia
-        Log::info("📡 [Webhook] Reverb Payload:", $request->all());
+        // 🚀 LOG DE ENTRADA BRUTA (Diagnóstico de Conectividade)
+        Log::info("📡 [Webhook] Tentativa de acesso!", [
+            'ip' => $request->ip(),
+            'payload' => $request->all(),
+            'content' => $request->getContent()
+        ]);
 
         $events = $request->input('events', []);
 
