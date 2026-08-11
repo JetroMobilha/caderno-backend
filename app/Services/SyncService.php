@@ -1,0 +1,131 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\Page;
+use App\Models\Notebook;
+use App\Models\User;
+use App\Events\PageDeleted;
+use App\Events\PageUpdated;
+use App\Jobs\ProcessPageOcr;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+
+class SyncService
+{
+    /**
+     * Processa a atualização ou criação de uma única página.
+     */
+    public function processPageData(array $pageData, User $user, ?string $userRole = null): ?array
+    {
+        if (empty($pageData['client_id'])) return null;
+
+        $localPage = Page::withTrashed()->where('client_id', $pageData['client_id'])->first();
+        $notebookId = $pageData['notebook_id'] ?? ($localPage ? $localPage->notebook_id : null);
+
+        if (!$notebookId) return null;
+
+        if ($localPage && $localPage->notebook_id != $notebookId) {
+            Log::warning("⚠️ [Sync] Tentativa de mover folha {$pageData['client_id']} do caderno {$localPage->notebook_id} para $notebookId abortada.");
+            return ['client_id' => $pageData['client_id'], 'status' => 'conflict_notebook_mismatch'];
+        }
+
+        $notebook = Notebook::find($notebookId);
+        if (!$notebook) return null;
+
+        // Se a role não foi passada, calculamos agora
+        if (!$userRole) {
+            if ($notebook->subject && $notebook->subject->user_id === $user->id) {
+                $userRole = 'owner';
+            } else {
+                $pivot = DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->first();
+                $userRole = $pivot ? $pivot->role : 'viewer';
+            }
+        }
+
+        if ($userRole === 'viewer') return null;
+
+        if ($localPage) {
+            $incomingTime = (int)($pageData['updated_at'] ?? 0);
+            $localTime = $localPage->updated_at_ms ?? (strtotime($localPage->updated_at) * 1000);
+
+            if ($incomingTime <= $localTime) {
+                return ['client_id' => $localPage->client_id, 'server_id' => $localPage->id, 'status' => 'ignored_old'];
+            }
+        }
+
+        // Deleção
+        if (!empty($pageData['is_deleted']) && $pageData['is_deleted'] == 1) {
+            if ($localPage && !$localPage->trashed()) {
+                $localPage->update(['updated_at_ms' => $pageData['updated_at'] ?? null]);
+                $localPage->delete();
+                try { PageDeleted::dispatch($localPage); } catch (\Exception $e) {}
+            }
+            return ['client_id' => $pageData['client_id'], 'server_id' => $localPage?->id, 'status' => 'deleted'];
+        }
+
+        $dbDate = isset($pageData['updated_at']) ? date('Y-m-d H:i:s', (int)($pageData['updated_at'] / 1000)) : now();
+
+        $updateData = [
+            'notebook_id'   => $notebook->id,
+            'page_number'   => $pageData['page_number'] ?? ($localPage ? $localPage->page_number : 1),
+            'updated_at'    => $dbDate,
+            'updated_at_ms' => $pageData['updated_at'] ?? null,
+            'is_landscape'  => !empty($pageData['is_landscape']) ? 1 : 0,
+            'is_frozen'     => !empty($pageData['is_frozen']) ? 1 : 0,
+            'paper_size'    => $pageData['paper_size'] ?? 'A4',
+            'header_data'   => $pageData['header_data'] ?? ($localPage ? $localPage->header_data : ['title' => '']),
+            'footer_data'   => $pageData['footer_data'] ?? ($localPage ? $localPage->footer_data : ['title' => '']),
+            'extracted_text'=> $pageData['extracted_text'] ?? ($localPage ? $localPage->extracted_text : null),
+            'deleted_at'    => null,
+        ];
+
+        // Merge de sub-items
+        $updateData['stroke_data'] = Page::mergeJsonItems($localPage->stroke_data ?? [], $this->parseClientArray($pageData['stroke_data'] ?? []), $user->id, $userRole);
+        $updateData['text_data']   = Page::mergeJsonItems($localPage->text_data ?? [], $this->parseClientArray($pageData['text_data'] ?? []), $user->id, $userRole);
+
+        // Imagens (Lidar com Base64 se houver)
+        $processedImages = [];
+        foreach ($this->parseClientArray($pageData['image_data'] ?? []) as $img) {
+            if (!empty($img['image_base64'])) {
+                $decoded = base64_decode($img['image_base64']);
+                $filename = 'img_' . Str::random(10) . '_' . time() . '.png';
+                Storage::disk('public')->put('notebook_images/' . $filename, $decoded);
+                $img['image_path'] = asset('storage/notebook_images/' . $filename);
+                unset($img['image_base64']);
+            }
+            $processedImages[] = $img;
+        }
+        $updateData['image_data'] = Page::mergeJsonItems($localPage->image_data ?? [], $processedImages, $user->id, $userRole);
+
+        if ($localPage) {
+            if($localPage->trashed()) $localPage->restore();
+            $localPage->update($updateData);
+        } else {
+            $updateData['client_id'] = $pageData['client_id'];
+            $localPage = Page::create($updateData);
+        }
+
+        // OCR assíncrono se houver traços novos e sem texto
+        if (!empty($pageData['stroke_data']) && empty($localPage->extracted_text)) {
+            try { ProcessPageOcr::dispatch($localPage->id); } catch (\Exception $e) {}
+        }
+
+        // Notificar via Reverb
+        try { PageUpdated::dispatch($localPage); } catch (\Exception $e) {}
+
+        return [
+            'client_id' => $localPage->client_id,
+            'server_id' => $localPage->id,
+            'page_number' => $localPage->page_number
+        ];
+    }
+
+    private function parseClientArray($data) {
+        if (is_array($data)) return $data;
+        if (is_string($data)) return json_decode($data, true) ?? [];
+        return [];
+    }
+}

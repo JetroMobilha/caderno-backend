@@ -92,6 +92,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/sync/recordings/push', [SyncController::class, 'pushRecordings']);
     Route::get('/sync/recordings/pull', [SyncController::class, 'pullRecordings']);
+    Route::post('/sync/realtime/update', [SyncController::class, 'realtimeUpdate']);
 
 
     // Listar e pesquisar cadernos na loja

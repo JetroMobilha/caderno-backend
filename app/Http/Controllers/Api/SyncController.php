@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessPageOcr;
+use App\Services\SyncService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -19,6 +20,7 @@ use App\Events\SyncRequested;
 
 class SyncController extends Controller
 {
+    public function __construct(protected SyncService $syncService) {}
     // =========================================================================
     // 📚 1. SINCRONIZAÇÃO DE DISCIPLINAS
     // =========================================================================
@@ -235,157 +237,16 @@ class SyncController extends Controller
 
         DB::transaction(function () use ($user, $clientPages, &$syncedPages) {
             foreach ($clientPages as $pageData) {
-                if (empty($pageData['client_id'])) continue;
-
-                // 🚀 BUSCA ESTRICTA: O Client ID é a âncora absoluta de identidade.
-                $localPage = Page::withTrashed()->where('client_id', $pageData['client_id'])->first();
-
-                $notebookId = $pageData['notebook_id'] ?? ($localPage ? $localPage->notebook_id : null);
-                if (!$notebookId) continue;
-
-                // 🛡️ VALIDAÇÃO DE INTEGRIDADE: Uma folha não pode saltar de caderno.
-                if ($localPage && $localPage->notebook_id != $notebookId) {
-                    Log::warning("⚠️ [Sync] Tentativa de mover folha {$pageData['client_id']} do caderno {$localPage->notebook_id} para $notebookId abortada.");
-                    $syncedPages[] = ['client_id' => $pageData['client_id'], 'status' => 'conflict_notebook_mismatch'];
-                    continue;
+                $result = $this->syncService->processPageData($pageData, $user);
+                if ($result) {
+                    $syncedPages[] = $result;
                 }
-
-                $notebook = Notebook::find($notebookId);
-                if (!$notebook) continue;
-
-                // 🎯 Identificar permissão
-                $userRole = 'student';
-                if ($notebook->subject && $notebook->subject->user_id === $user->id) {
-                    $userRole = 'owner';
-                } else {
-                    $pivot = DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->first();
-                    $userRole = $pivot ? $pivot->role : 'viewer';
-                }
-
-                if ($userRole === 'viewer') continue;
-
-                // 🚀 Lógica LWW Corrigida para milissegundos
-                if ($localPage) {
-                    $incomingTime = (int)($pageData['updated_at'] ?? 0);
-                    $localTime = $localPage->updated_at_ms ?? (strtotime($localPage->updated_at) * 1000);
-
-                    if ($incomingTime <= $localTime) {
-                        $syncedPages[] = ['client_id' => $localPage->client_id, 'server_id' => $localPage->id, 'status' => 'ignored_old'];
-                        continue;
-                    }
-                }
-
-                if (!empty($pageData['is_deleted']) && $pageData['is_deleted'] == 1) {
-                    if ($localPage && !$localPage->trashed()) {
-                        $localPage->update(['updated_at_ms' => $pageData['updated_at'] ?? null]);
-                        $localPage->delete();
-
-                        // 🚀 SINALIZAÇÃO LEVE: Avisar todos via Reverb que a folha morreu
-                        try {
-                            PageDeleted::dispatch($localPage);
-                        } catch (\Exception $e) {
-                            Log::error("🚨 [Sync] Falha ao disparar PageDeleted para folha {$localPage->client_id}");
-                        }
-                    }
-                    $syncedPages[] = ['client_id' => $pageData['client_id'], 'server_id' => $localPage?->id, 'status' => 'deleted'];
-                    continue;
-                }
-
-                // 🚀 Conversão do Timestamp para o MySQL
-                $dbDate = isset($pageData['updated_at'])
-                    ? date('Y-m-d H:i:s', (int)($pageData['updated_at'] / 1000))
-                    : now();
-
-                $updateData = [
-                    'notebook_id'   => $notebook->id,
-                    'page_number'   => $pageData['page_number'],
-                    'updated_at'    => $dbDate,
-                    'updated_at_ms' => $pageData['updated_at'] ?? null, // Guardar precisão ms
-                    'is_landscape'  => !empty($pageData['is_landscape']) ? 1 : 0,
-                    'is_frozen'     => !empty($pageData['is_frozen']) ? 1 : 0,
-                    'paper_size'    => $pageData['paper_size'] ?? 'A4',
-                    'header_data'   => $pageData['header_data'] ?? ['title' => ''],
-                    'footer_data'   => $pageData['footer_data'] ?? ['title' => ''],
-                    'extracted_text'=> $pageData['extracted_text'] ?? null,
-                    'deleted_at'    => null,
-                ];
-
-                // Sincronizar itens internos
-                $updateData['stroke_data'] = Page::mergeJsonItems($localPage->stroke_data ?? [], $this->parseClientArray($pageData['stroke_data'] ?? []), $user->id, $userRole);
-                $updateData['text_data']   = Page::mergeJsonItems($localPage->text_data ?? [], $this->parseClientArray($pageData['text_data'] ?? []), $user->id, $userRole);
-
-                // Imagens
-                $processedImages = [];
-                foreach ($this->parseClientArray($pageData['image_data'] ?? []) as $img) {
-                    if (!empty($img['image_base64'])) {
-                        $decoded = base64_decode($img['image_base64']);
-                        $filename = 'img_' . Str::random(10) . '_' . time() . '.png';
-                        Storage::disk('public')->put('notebook_images/' . $filename, $decoded);
-                        $img['image_path'] = asset('storage/notebook_images/' . $filename);
-                        unset($img['image_base64']);
-                    }
-                    $processedImages[] = $img;
-                }
-                $updateData['image_data'] = Page::mergeJsonItems($localPage->image_data ?? [], $processedImages, $user->id, $userRole);
-
-                if ($localPage) {
-                    if($localPage->trashed()) $localPage->restore();
-                    $localPage->update($updateData);
-                } else {
-                    $updateData['client_id'] = $pageData['client_id'];
-                    $localPage = Page::create($updateData);
-                }
-
-                if (!empty($pageData['stroke_data']) && empty($localPage->extracted_text)) {
-                    try { ProcessPageOcr::dispatch($localPage->id); } catch (\Exception $e) { Log::error($e->getMessage()); }
-                }
-
-                // 🚀 REATIVIDADE: Avisar outros utilizadores que a folha foi atualizada autoritativamente na nuvem
-                try {
-                    PageUpdated::dispatch($localPage);
-                } catch (\Exception $e) {
-                    Log::error("🚨 [Sync] Falha ao disparar PageUpdated para folha {$localPage->client_id}: " . $e->getMessage());
-                }
-
-                $syncedPages[] = ['client_id' => $localPage->client_id, 'server_id' => $localPage->id, 'page_number' => $localPage->page_number];
             }
         });
 
         return response()->json(['message' => 'OK', 'synced_pages' => $syncedPages]);
     }
 
-    private function parseClientArray($data) {
-        if (is_array($data)) return $data;
-        if (is_string($data)) return json_decode($data, true) ?? [];
-        return [];
-    }
-
-    /**
-     * 🛡️ Garante que os dados (Header/Footer) se tornam sempre numa string JSON válida para o MySQL.
-     */
-    private function normalizeJsonColumn($data, $fallback = []): string
-    {
-        if (is_null($data) || $data === '') {
-            return json_encode($fallback, JSON_UNESCAPED_UNICODE);
-        }
-
-        // Se o Laravel já converteu para array ou objeto via Request
-        if (is_array($data) || is_object($data)) {
-            return json_encode($data, JSON_UNESCAPED_UNICODE);
-        }
-
-        if (is_string($data)) {
-            // Tenta ver se a string já é um JSON válido
-            $decoded = json_decode($data, true);
-            if (json_last_error() === JSON_ERROR_NONE && (is_array($decoded) || is_object($decoded))) {
-                return json_encode($decoded, JSON_UNESCAPED_UNICODE);
-            }
-            // Se for texto plano (ex: "Folha 1"), transforma num objeto JSON válido
-            return json_encode(['title' => trim($data)], JSON_UNESCAPED_UNICODE);
-        }
-
-        return json_encode($fallback, JSON_UNESCAPED_UNICODE);
-    }
 
     public function pullPages(Request $request)
     {
@@ -493,5 +354,60 @@ class SyncController extends Controller
             'data' => $query->get(),
             'meta' => ['server_time' => now()->toIso8601String()]
         ]);
+    }
+
+    /**
+     * 🚀 UPDATE HÍBRIDO (REDIS + JOB)
+     * Recebe dados em tempo real (end of touch) e processa via Redis.
+     */
+    public function realtimeUpdate(Request $request)
+    {
+        $user = $request->user();
+        $pageData = $request->input('page');
+
+        if (empty($pageData['client_id'])) {
+            return response()->json(['error' => 'client_id missing'], 400);
+        }
+
+        $clientId = $pageData['client_id'];
+        $notebookId = $pageData['notebook_id'];
+
+        // 🛡️ Validação rápida de permissão
+        $notebook = Notebook::find($notebookId);
+        if (!$notebook) return response()->json(['error' => 'notebook not found'], 404);
+
+        $userRole = 'student';
+        if ($notebook->subject && $notebook->subject->user_id === $user->id) {
+            $userRole = 'owner';
+        } else {
+            $pivot = DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->first();
+            $userRole = $pivot ? $pivot->role : 'viewer';
+        }
+
+        if ($userRole === 'viewer') {
+            return response()->json(['error' => 'forbidden'], 403);
+        }
+
+        // 🚀 BUFFER NO REDIS
+        // Recuperamos o que já está no Redis para esta página e fundimos com o novo
+        $redisKey = "page_update:{$clientId}";
+        $existingRedisData = \Illuminate\Support\Facades\Cache::get($redisKey) ?? [];
+
+        // Merge leve para o Redis (apenas para acumular traços/textos entre requisições rápidas)
+        $mergedData = $pageData;
+        if (!empty($existingRedisData)) {
+            $mergedData['stroke_data'] = array_merge($existingRedisData['stroke_data'] ?? [], $pageData['stroke_data'] ?? []);
+            $mergedData['text_data']   = array_merge($existingRedisData['text_data'] ?? [], $pageData['text_data'] ?? []);
+            $mergedData['image_data']  = array_merge($existingRedisData['image_data'] ?? [], $pageData['image_data'] ?? []);
+            // Manter o tempo mais recente
+            $mergedData['updated_at'] = max($existingRedisData['updated_at'] ?? 0, $pageData['updated_at'] ?? 0);
+        }
+
+        \Illuminate\Support\Facades\Cache::put($redisKey, $mergedData, 600); // 10 minutos de vida
+
+        // 🚀 DESPACHAR JOB
+        \App\Jobs\ProcessRealtimeUpdate::dispatch($clientId, $user->id, $userRole);
+
+        return response()->json(['status' => 'buffered', 'client_id' => $clientId]);
     }
 }
