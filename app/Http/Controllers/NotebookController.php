@@ -8,6 +8,7 @@ use App\Models\Subject;
 use App\Models\Notebook;
 use App\Models\User;
 use App\Events\SyncRequested;
+use App\Events\NotebookDeleted;
 use Spatie\PdfToImage\Pdf;
 use Illuminate\Support\Facades\Storage;
 use App\Models\Page;
@@ -105,6 +106,12 @@ class NotebookController extends Controller
         if ($notebook->subject->user_id !== $request->user()->id) {
             return response()->json(['message' => 'Sem permissão.'], 403);
         }
+
+        // 🚀 Notificar colaboradores antes de apagar
+        try {
+            NotebookDeleted::dispatch($notebook);
+        } catch (\Exception $e) {}
+
         $notebook->delete();
         \App\Events\SyncRequested::dispatch($request->user()->id);
         return response()->json(['message' => 'Apagado.']);

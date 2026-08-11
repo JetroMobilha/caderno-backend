@@ -9,7 +9,6 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class ProcessRealtimeUpdate implements ShouldQueue
@@ -20,7 +19,7 @@ class ProcessRealtimeUpdate implements ShouldQueue
      * Create a new job instance.
      */
     public function __construct(
-        public string $pageClientId,
+        public array $pageData, // Agora recebe os dados diretamente
         public int $userId,
         public string $userRole
     ) {
@@ -32,13 +31,6 @@ class ProcessRealtimeUpdate implements ShouldQueue
      */
     public function handle(SyncService $syncService): void
     {
-        $redisKey = "page_update:{$this->pageClientId}";
-        $updateData = Cache::get($redisKey);
-
-        if (!$updateData) {
-            return;
-        }
-
         $user = User::find($this->userId);
         if (!$user) {
             Log::warning("⚠️ [Realtime Job] Utilizador {$this->userId} não encontrado para persistência.");
@@ -46,16 +38,14 @@ class ProcessRealtimeUpdate implements ShouldQueue
         }
 
         try {
-            // Sincronizar usando o serviço centralizado
-            $result = $syncService->processPageData($updateData, $user, $this->userRole);
+            // Sincronizar usando o serviço centralizado com os dados atómicos
+            $result = $syncService->processPageData($this->pageData, $user, $this->userRole);
 
             if ($result) {
-                // Limpar cache após sucesso
-                Cache::forget($redisKey);
-                Log::debug("✅ [Realtime Job] Persistência concluída para folha {$this->pageClientId}.");
+                Log::debug("✅ [Realtime Job] Persistência concluída para folha {$this->pageData['client_id']}.");
             }
         } catch (\Exception $e) {
-            Log::error("🚨 [Realtime Job] Falha ao persistir folha {$this->pageClientId}: " . $e->getMessage());
+            Log::error("🚨 [Realtime Job] Falha ao persistir folha {$this->pageData['client_id']}: " . $e->getMessage());
             throw $e;
         }
     }

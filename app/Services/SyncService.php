@@ -7,6 +7,7 @@ use App\Models\Notebook;
 use App\Models\User;
 use App\Events\PageDeleted;
 use App\Events\PageUpdated;
+use App\Events\NotebookStructureUpdated;
 use App\Jobs\ProcessPageOcr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -21,6 +22,9 @@ class SyncService
     public function processPageData(array $pageData, User $user, ?string $userRole = null): ?array
     {
         if (empty($pageData['client_id'])) return null;
+
+        $isCreation = false;
+        $isDeletion = !empty($pageData['is_deleted']) && $pageData['is_deleted'] == 1;
 
         $localPage = Page::withTrashed()->where('client_id', $pageData['client_id'])->first();
         $notebookId = $pageData['notebook_id'] ?? ($localPage ? $localPage->notebook_id : null);
@@ -101,11 +105,15 @@ class SyncService
         $updateData['image_data'] = Page::mergeJsonItems($localPage->image_data ?? [], $processedImages, $user->id, $userRole);
 
         if ($localPage) {
-            if($localPage->trashed()) $localPage->restore();
+            if($localPage->trashed()) {
+                $localPage->restore();
+                $isCreation = true;
+            }
             $localPage->update($updateData);
         } else {
             $updateData['client_id'] = $pageData['client_id'];
             $localPage = Page::create($updateData);
+            $isCreation = true;
         }
 
         // OCR assíncrono se houver traços novos e sem texto
@@ -114,13 +122,34 @@ class SyncService
         }
 
         // Notificar via Reverb
-        try { PageUpdated::dispatch($localPage); } catch (\Exception $e) {}
+        try {
+            PageUpdated::dispatch($localPage);
+
+            if ($isCreation || $isDeletion) {
+                $this->broadcastStructureUpdate($notebook);
+            }
+        } catch (\Exception $e) {}
 
         return [
             'client_id' => $localPage->client_id,
             'server_id' => $localPage->id,
             'page_number' => $localPage->page_number
         ];
+    }
+
+    public function broadcastStructureUpdate(Notebook $notebook)
+    {
+        try {
+            $structure = Page::where('notebook_id', $notebook->id)
+                ->orderBy('page_number')
+                ->orderBy('client_id')
+                ->get(['client_id', 'page_number'])
+                ->toArray();
+
+            NotebookStructureUpdated::dispatch($notebook, $structure);
+        } catch (\Exception $e) {
+            Log::error("🚨 [Sync] Falha ao disparar NotebookStructureUpdated: " . $e->getMessage());
+        }
     }
 
     private function parseClientArray($data) {

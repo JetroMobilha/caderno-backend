@@ -16,6 +16,7 @@ use App\Models\Page;
 use App\Models\LessonRecording;
 use App\Events\PageDeleted;
 use App\Events\PageUpdated;
+use App\Events\NotebookDeleted;
 use App\Events\SyncRequested;
 
 class SyncController extends Controller
@@ -140,6 +141,12 @@ class SyncController extends Controller
                     if ($notebook->subject && $notebook->subject->user_id == $user->id) {
                         if ($incomingTime > ($notebook->updated_at_ms ?? 0)) {
                             $notebook->update(['updated_at_ms' => $incomingTime]);
+
+                            // 🚀 Notificar colaboradores
+                            try {
+                                NotebookDeleted::dispatch($notebook);
+                            } catch (\Exception $e) {}
+
                             $notebook->delete();
                         }
                     }
@@ -388,26 +395,11 @@ class SyncController extends Controller
             return response()->json(['error' => 'forbidden'], 403);
         }
 
-        // 🚀 BUFFER NO REDIS
-        // Recuperamos o que já está no Redis para esta página e fundimos com o novo
-        $redisKey = "page_update:{$clientId}";
-        $existingRedisData = \Illuminate\Support\Facades\Cache::get($redisKey) ?? [];
+        // 🚀 DESPACHAR JOB IMEDIATAMENTE COM OS DADOS (Atómico)
+        // Não usamos mais o Cache::get/put aqui para evitar race conditions.
+        // O Job agora recebe o conteúdo completo do toque atual.
+        \App\Jobs\ProcessRealtimeUpdate::dispatch($pageData, $user->id, $userRole);
 
-        // Merge leve para o Redis (apenas para acumular traços/textos entre requisições rápidas)
-        $mergedData = $pageData;
-        if (!empty($existingRedisData)) {
-            $mergedData['stroke_data'] = array_merge($existingRedisData['stroke_data'] ?? [], $pageData['stroke_data'] ?? []);
-            $mergedData['text_data']   = array_merge($existingRedisData['text_data'] ?? [], $pageData['text_data'] ?? []);
-            $mergedData['image_data']  = array_merge($existingRedisData['image_data'] ?? [], $pageData['image_data'] ?? []);
-            // Manter o tempo mais recente
-            $mergedData['updated_at'] = max($existingRedisData['updated_at'] ?? 0, $pageData['updated_at'] ?? 0);
-        }
-
-        \Illuminate\Support\Facades\Cache::put($redisKey, $mergedData, 600); // 10 minutos de vida
-
-        // 🚀 DESPACHAR JOB
-        \App\Jobs\ProcessRealtimeUpdate::dispatch($clientId, $user->id, $userRole);
-
-        return response()->json(['status' => 'buffered', 'client_id' => $clientId]);
+        return response()->json(['status' => 'queued', 'client_id' => $clientId]);
     }
 }
