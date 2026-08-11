@@ -119,6 +119,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // 🤝 Gestão de Sessões Colaborativas
     Route::get('/notebooks/{id}/session-status', [App\Http\Controllers\CollaborativeSessionController::class, 'getStatus']);
+
+    // 🔍 Rota de Diagnóstico Temporária
+    Route::get('/debug/reverb-config', function() {
+        return response()->json(config('reverb.apps.apps.0.webhooks'));
+    });
 });
 
 // 📡 Webhooks do Reverb (Pusher compatible)
