@@ -15,48 +15,63 @@ class CollaborativeSessionController extends Controller
      */
     public function webhook(Request $request)
     {
-        $events = $request->input('events', array());
+        // 🚀 LOG TOTAL: Capturar exatamente o que o Reverb envia
+        Log::info("📡 [Webhook] Reverb Payload:", $request->all());
+
+        $events = $request->input('events', []);
 
         foreach ($events as $event) {
-            $evtName = isset($event['name']) ? $event['name'] : '';
-            $channel = isset($event['channel']) ? $event['channel'] : '';
-            $userId = isset($event['user_id']) ? $event['user_id'] : null;
+            $evtName = $event['name'] ?? '';
+            $channel = $event['channel'] ?? '';
+            $userId = $event['user_id'] ?? null;
 
-            if (!$userId || strpos($channel, 'presence-notebook.') !== 0) {
+            if (!$userId || !str_starts_with($channel, 'presence-notebook.')) {
+                Log::warning("⚠️ [Webhook] Ignorando evento inválido ou canal errado.", ['channel' => $channel, 'user' => $userId]);
                 continue;
             }
 
             $notebookId = str_replace('presence-notebook.', '', $channel);
 
-            $sessSearch = array('notebook_id' => $notebookId, 'is_active' => true);
-            $sessCreate = array('started_at' => now());
-            $session = CollaborativeSession::firstOrCreate($sessSearch, $sessCreate);
+            // 🛡️ Verificar se o caderno existe
+            $notebook = Notebook::find($notebookId);
+            if (!$notebook) {
+                Log::error("❌ [Webhook] Caderno $notebookId não encontrado na DB.");
+                continue;
+            }
+
+            $session = CollaborativeSession::firstOrCreate(
+                ['notebook_id' => $notebookId, 'is_active' => true],
+                ['started_at' => now()]
+            );
 
             if ($evtName === 'member_added') {
-                $pSearch = array('session_id' => $session->id, 'user_id' => $userId, 'left_at' => null);
-                $pData = array(
-                    'joined_at' => now(),
-                    'socket_id' => (isset($event['socket_id']) ? $event['socket_id'] : null)
+                Log::info("🟢 [Webhook] Registando entrada do utilizador $userId na sessão {$session->id}");
+                CollaborativeSessionParticipant::updateOrCreate(
+                    ['session_id' => $session->id, 'user_id' => $userId, 'left_at' => null],
+                    [
+                        'joined_at' => now(),
+                        'socket_id' => $event['socket_id'] ?? null
+                    ]
                 );
-                CollaborativeSessionParticipant::updateOrCreate($pSearch, $pData);
             } elseif ($evtName === 'member_removed') {
+                Log::info("🔴 [Webhook] Registando saída do utilizador $userId");
                 $participant = CollaborativeSessionParticipant::where('session_id', $session->id)
                     ->where('user_id', $userId)
                     ->whereNull('left_at')
                     ->first();
 
                 if ($participant) {
-                    $participant->update(array('left_at' => now()));
+                    $participant->update(['left_at' => now()]);
                 }
 
-                $activeCount = $session->activeParticipants()->count();
-                if ($activeCount === 0) {
-                    $session->update(array('is_active' => false, 'ended_at' => now()));
+                if ($session->activeParticipants()->count() === 0) {
+                    Log::info("🧹 [Webhook] Sala vazia. Encerrando sessão {$session->id}");
+                    $session->update(['is_active' => false, 'ended_at' => now()]);
                 }
             }
         }
 
-        return response()->json(array('status' => 'ok'));
+        return response()->json(['status' => 'ok']);
     }
 
     /**
