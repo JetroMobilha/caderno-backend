@@ -116,6 +116,11 @@ class SyncService
             $isCreation = true;
         }
 
+        // 🚀 Forçar atualização estrutural se o cliente sinalizar
+        if (!empty($pageData['is_new_page'])) {
+            $isCreation = true;
+        }
+
         // OCR assíncrono se houver traços novos e sem texto
         if (!empty($pageData['stroke_data']) && empty($localPage->extracted_text)) {
             try { ProcessPageOcr::dispatch($localPage->id); } catch (\Exception $e) {}

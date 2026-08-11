@@ -116,4 +116,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // 🖋️ Armazenar o alfabeto personalizado do utilizador
     Route::post('/handwriting/alphabet', [UserAlphabetController::class, 'store']);
+
+    // 🤝 Gestão de Sessões Colaborativas
+    Route::get('/notebooks/{id}/session-status', [App\Http\Controllers\CollaborativeSessionController::class, 'getStatus']);
 });
+
+// 📡 Webhooks do Reverb (Pusher compatible)
+Route::post('/webhooks/reverb', [App\Http\Controllers\CollaborativeSessionController::class, 'webhook']);

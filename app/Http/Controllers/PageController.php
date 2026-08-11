@@ -5,51 +5,77 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Notebook;
 use App\Models\Page;
-use App\Events\SyncRequested;
-use App\Events\PageUpdated; // Certifica-te de criar este evento
+use App\Events\PageUpdated;
+use App\Events\NotebookStructureUpdated;
+use App\Services\SyncService;
+use Illuminate\Support\Facades\DB;
 
 class PageController extends Controller
 {
-
-// Listar páginas de um caderno com paginação
     public function index(Request $request, $notebook_id)
     {
-        // Permite que donos e colaboradores listem as páginas
         $notebook = $request->user()->notebooks()->find($notebook_id)
                  ?? $request->user()->sharedNotebooks()->findOrFail($notebook_id);
 
-        // A MÁGICA: Em vez de usar ->get(), usamos ->paginate(20)
-        // Ordenamos pelo número da página para o Flutter receber na ordem certa
         $pages = $notebook->pages()->orderBy('page_number', 'asc')->paginate(20);
-
         return response()->json($pages);
     }
-    
+
     public function store(Request $request, $notebook_id) {
+        $user = $request->user();
         $notebook = Notebook::findOrFail($notebook_id);
-        $page = $notebook->pages()->firstOrCreate(['page_number' => $request->page_number]);
 
-        // Fusão inteligente para traços finais via API
-        if ($request->has('stroke_data')) {
-            $page->stroke_data = json_encode(Page::mergeJsonItems($page->stroke_data, $request->stroke_data));
-        }
-        if ($request->has('text_data')) {
-            $page->text_data = json_encode(Page::mergeJsonItems($page->text_data, $request->text_data));
-        }
-        if ($request->has('image_data')) {
-            $page->image_data = json_encode(Page::mergeJsonItems($page->image_data, $request->image_data));
+        // Validar permissão
+        $isOwner = $notebook->subject && $notebook->subject->user_id === $user->id;
+        $pivot = DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->first();
+        $role = $isOwner ? 'owner' : ($pivot ? $pivot->role : 'viewer');
+
+        if ($role === 'viewer') {
+            return response()->json(['message' => 'Acesso negado.'], 403);
         }
 
-        $page->save();
+        $request->validate([
+            'client_id' => 'required|string',
+            'page_number' => 'required|integer',
+            'paper_size' => 'nullable|string',
+            'is_landscape' => 'nullable|boolean',
+        ]);
 
-        // 📢 Broadcast com o sender_id para o Flutter ignorar o eco
-        broadcast(new PageUpdated(
-            $notebook->id,
-            $page->id,
-            $page->page_number,
-            $request->stroke_data ?? [],
-            $request->user()->id // sender_id
-        ))->toOthers();
+        // 🚀 USAR CLIENT_ID PARA EVITAR DUPLICAÇÃO
+        $page = Page::withTrashed()->where('client_id', $request->client_id)->first();
+
+        if ($page) {
+            if ($page->trashed()) $page->restore();
+            // Se já existe, apenas retornamos (ou atualizamos se necessário)
+            return response()->json($page, 200);
+        }
+
+        // 🛡️ CONCORRÊNCIA: Se o número da página já estiver ocupado por outro client_id
+        // (acontece quando dois utilizadores criam a mesma folha simultaneamente)
+        $existingAtNumber = Page::where('notebook_id', $notebook->id)
+            ->where('page_number', $request->page_number)
+            ->exists();
+
+        $pageNumber = $request->page_number;
+        if ($existingAtNumber) {
+            // Empurrar as páginas existentes para a frente ou encontrar o próximo buraco
+            // Para simplicidade agora, apenas pegamos o próximo número disponível
+            $max = Page::where('notebook_id', $notebook->id)->max('page_number');
+            $pageNumber = $max + 1;
+        }
+
+        $page = Page::create([
+            'notebook_id' => $notebook->id,
+            'client_id' => $request->client_id,
+            'page_number' => $pageNumber,
+            'paper_size' => $request->paper_size ?? 'A4',
+            'is_landscape' => $request->is_landscape ?? false,
+            'updated_at_ms' => round(microtime(true) * 1000),
+        ]);
+
+        // 📢 Notificar estrutura atualizada
+        $syncService = new SyncService();
+        $syncService->broadcastStructureUpdate($notebook);
 
         return response()->json($page, 201);
     }
