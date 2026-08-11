@@ -92,7 +92,17 @@ class NotebookController extends Controller
             return response()->json(['message' => 'Acesso negado.'], 403);
         }
 
-        $notebook->update($request->only(['title', 'cover_type', 'color', 'line_type', 'paper_size', 'price', 'is_published', 'description', 'line_spacing']));
+        $updateData = $request->only(['title', 'cover_type', 'color', 'line_type', 'paper_size', 'price', 'is_published', 'description', 'line_spacing', 'subject_id']);
+
+        // 🛡️ Segurança: Validar se a nova disciplina pertence ao utilizador
+        if (isset($updateData['subject_id'])) {
+            $subject = Subject::where('user_id', $request->user()->id)->find($updateData['subject_id']);
+            if (!$subject) {
+                return response()->json(['message' => 'Disciplina inválida.'], 400);
+            }
+        }
+
+        $notebook->update($updateData);
         SyncRequested::dispatch($request->user()->id);
         return response()->json($notebook, 200);
     }
