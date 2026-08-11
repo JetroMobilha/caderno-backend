@@ -27,10 +27,16 @@ class CollaborativeSessionController extends Controller
         foreach ($events as $event) {
             $evtName = $event['name'] ?? '';
             $channel = $event['channel'] ?? '';
+
+            // 🚀 CAPTURA DE ID FLEXÍVEL (Reverb / Pusher / Custom)
             $userId = $event['user_id'] ?? null;
+            if (!$userId && isset($event['data'])) {
+                $evtData = is_array($event['data']) ? $event['data'] : json_decode($event['data'], true);
+                $userId = $evtData['user_id'] ?? $evtData['id'] ?? null;
+            }
 
             if (!$userId || !str_starts_with($channel, 'presence-notebook.')) {
-                Log::warning("⚠️ [Webhook] Ignorando evento inválido ou canal errado.", ['channel' => $channel, 'user' => $userId]);
+                Log::warning("⚠️ [Webhook] Evento ignorado (ID ausente ou canal errado)", array('event' => $event));
                 continue;
             }
 
