@@ -11,37 +11,34 @@ use Illuminate\Support\Facades\Log;
 class CollaborativeSessionController extends Controller
 {
     /**
-     * Recebe eventos de presença do Reverb (Webhooks).
+     * Webhook do Reverb.
      */
     public function webhook(Request $request)
     {
-        $events = $request->input('events', []);
-        Log::info("📡 [Webhook] Recebidos " . count($events) . " eventos do Reverb.");
+        $events = $request->input('events', array());
 
         foreach ($events as $event) {
-            $evtName = $event['name'] ?? '';
-            $channel = $event['channel'] ?? '';
-            $userId = $event['user_id'] ?? null;
+            $evtName = isset($event['name']) ? $event['name'] : '';
+            $channel = isset($event['channel']) ? $event['channel'] : '';
+            $userId = isset($event['user_id']) ? $event['user_id'] : null;
 
-            if (!$userId || !str_starts_with($channel, 'presence-notebook.')) {
+            if (!$userId || strpos($channel, 'presence-notebook.') !== 0) {
                 continue;
             }
 
-            Log::info("🔔 [Webhook] Evento: $evtName no canal: $channel para user: $userId");
-
             $notebookId = str_replace('presence-notebook.', '', $channel);
 
-            // Encontrar ou criar sessão ativa para o caderno
-            $session = CollaborativeSession::firstOrCreate(
-                ['notebook_id' => $notebookId, 'is_active' => true],
-                ['started_at' => now()]
-            );
+            $sessSearch = array('notebook_id' => $notebookId, 'is_active' => true);
+            $sessCreate = array('started_at' => now());
+            $session = CollaborativeSession::firstOrCreate($sessSearch, $sessCreate);
 
             if ($evtName === 'member_added') {
-                CollaborativeSessionParticipant::updateOrCreate(
-                    ['session_id' => $session->id, 'user_id' => $userId, 'left_at' => null],
-                    ['joined_at' => now(), 'socket_id' => $event['socket_id'] ?? null]
+                $pSearch = array('session_id' => $session->id, 'user_id' => $userId, 'left_at' => null);
+                $pData = array(
+                    'joined_at' => now(),
+                    'socket_id' => (isset($event['socket_id']) ? $event['socket_id'] : null)
                 );
+                CollaborativeSessionParticipant::updateOrCreate($pSearch, $pData);
             } elseif ($evtName === 'member_removed') {
                 $participant = CollaborativeSessionParticipant::where('session_id', $session->id)
                     ->where('user_id', $userId)
@@ -49,17 +46,17 @@ class CollaborativeSessionController extends Controller
                     ->first();
 
                 if ($participant) {
-                    $participant->update(['left_at' => now()]);
+                    $participant->update(array('left_at' => now()));
                 }
 
-                // Se a sala ficou vazia, encerramos a sessão
-                if ($session->activeParticipants()->count() === 0) {
-                    $session->update(['is_active' => false, 'ended_at' => now()]);
+                $activeCount = $session->activeParticipants()->count();
+                if ($activeCount === 0) {
+                    $session->update(array('is_active' => false, 'ended_at' => now()));
                 }
             }
         }
 
-        return response()->json(['status' => 'ok']);
+        return response()->json(array('status' => 'ok'));
     }
 
     /**
@@ -72,21 +69,24 @@ class CollaborativeSessionController extends Controller
             ->first();
 
         if (!$session) {
-            return response()->json(['active' => false]);
+            return response()->json(array('active' => false));
         }
 
-        // A autoridade é quem entrou primeiro e ainda não saiu
         $authority = $session->activeParticipants()
             ->orderBy('joined_at', 'asc')
-            ->with('user:id,name')
+            ->with('user')
             ->first();
 
-        return response()->json([
+        $authorityId = $authority ? $authority->user_id : null;
+        $authorityName = ($authority && $authority->user) ? $authority->user->name : null;
+        $participantsCount = $session->activeParticipants()->count();
+
+        return response()->json(array(
             'active' => true,
-            'authority_id' => $authority?->user_id,
-            'authority_name' => $authority?->user?->name,
-            'participants_count' => $session->activeParticipants()->count(),
-            'started_at' => $session->started_at,
-        ]);
+            'authority_id' => $authorityId,
+            'authority_name' => $authorityName,
+            'participants_count' => $participantsCount,
+            'started_at' => $session->started_at
+        ));
     }
 }
