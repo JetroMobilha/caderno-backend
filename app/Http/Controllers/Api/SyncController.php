@@ -279,7 +279,15 @@ class SyncController extends Controller
                     if ($localPage && !$localPage->trashed()) {
                         $localPage->update(['updated_at_ms' => $pageData['updated_at'] ?? null]);
                         $localPage->delete();
+
+                        // 🚀 SINALIZAÇÃO LEVE: Avisar todos via Reverb que a folha morreu
+                        try {
+                            PageDeleted::dispatch($localPage);
+                        } catch (\Exception $e) {
+                            Log::error("🚨 [Sync] Falha ao disparar PageDeleted para folha {$localPage->client_id}");
+                        }
                     }
+                    $syncedPages[] = ['client_id' => $pageData['client_id'], 'server_id' => $localPage?->id, 'status' => 'deleted'];
                     continue;
                 }
 
