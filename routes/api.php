@@ -30,6 +30,14 @@ Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 // Webhook de Pagamentos (A ProxyPay chama esta rota livremente)
 Route::post('/webhooks/payment-confirmation', [PaymentController::class, 'webhookConfirmation']);
 
+// 🔍 Rota de Diagnóstico Temporária
+    Route::get('/debug/reverb-config', function() {
+        return response()->json(config('reverb.apps.apps.0.webhooks'));
+    });
+
+// 📡 Webhooks do Reverb (Pusher compatible)
+Route::post('/webhooks/reverb', [App\Http\Controllers\CollaborativeSessionController::class, 'webhook']);
+
 /*
 |--------------------------------------------------------------------------
 | 🔒 ROTAS PROTEGIDAS (Acesso via Token Sanctum)
@@ -123,10 +131,4 @@ Route::middleware('auth:sanctum')->group(function () {
    
 });
 
- // 🔍 Rota de Diagnóstico Temporária
-    Route::get('/debug/reverb-config', function() {
-        return response()->json(config('reverb.apps.apps.0.webhooks'));
-    });
-
-// 📡 Webhooks do Reverb (Pusher compatible)
-Route::post('/webhooks/reverb', [App\Http\Controllers\CollaborativeSessionController::class, 'webhook']);
+ 
