@@ -73,10 +73,18 @@ class CollaborativeSessionController extends Controller
                 if ($participant) {
                     $participant->update(['left_at' => now()]);
                 }
+            } elseif ($evtName === 'channel_vacated') {
+                Log::info("🧹 [Webhook] Canal totalmente vazio. Encerrando sessão {$session->id}");
+                $session->update(['is_active' => false, 'ended_at' => now()]);
 
-                if ($session->activeParticipants()->count() === 0) {
-                    Log::info("🧹 [Webhook] Sala vazia. Encerrando sessão {$session->id}");
-                    $session->update(['is_active' => false, 'ended_at' => now()]);
+                // Marcar todos os que ficaram "pendurados" como tendo saído
+                CollaborativeSessionParticipant::where('session_id', $session->id)
+                    ->whereNull('left_at')
+                    ->update(['left_at' => now()]);
+            } elseif ($evtName === 'channel_occupied') {
+                Log::info("🔋 [Webhook] Canal ocupado. Sessão {$session->id} garantida ativa.");
+                if (!$session->is_active) {
+                    $session->update(['is_active' => true, 'ended_at' => null]);
                 }
             }
         }
