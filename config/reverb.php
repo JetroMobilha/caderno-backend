@@ -97,7 +97,7 @@ return [
                 'webhooks' => [
                     [
                         'url' => 'http://127.0.0.1:8080/api/webhooks/reverb',
-                        'events' => ['member_added', 'member_removed', 'channel_occupied', 'channel_vacated'],
+                        'event_types' => ['member_added', 'member_removed', 'channel_occupied', 'channel_vacated'],
                     ],
                 ],
             ],
