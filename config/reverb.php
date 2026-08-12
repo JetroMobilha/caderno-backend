@@ -96,7 +96,7 @@ return [
                 ],
                 'webhooks' => [
                     [
-                        'url' => env('REVERB_WEBHOOK_URL', env('APP_URL', 'http://localhost') . '/api/webhooks/reverb'),
+                        'url' => 'http://127.0.0.1:8080/api/webhooks/reverb',
                         'events' => ['member_added', 'member_removed', 'channel_occupied', 'channel_vacated'],
                     ],
                 ],
