@@ -107,11 +107,15 @@ class CollaborativeSessionController extends Controller
      */
     public function getStatus(Request $request, $notebook_id)
     {
+        Log::info("🔍 [Session] Consulta de status para caderno $notebook_id");
+
         $session = CollaborativeSession::where('notebook_id', $notebook_id)
             ->where('is_active', true)
+            ->orderBy('started_at', 'desc')
             ->first();
 
         if (!$session) {
+            Log::warning("⚠️ [Session] Nenhuma sessão ativa encontrada para caderno $notebook_id");
             return response()->json(['active' => false]);
         }
 
