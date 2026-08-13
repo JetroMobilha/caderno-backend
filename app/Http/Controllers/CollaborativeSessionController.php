@@ -56,7 +56,7 @@ class CollaborativeSessionController extends Controller
             'session_id' => $session->id,
             'authority_id' => $authority ? $authority->user_id : null,
             'participants_count' => $session->activeParticipants()->count(),
-            'started_at' => $session->started_at->toIso8601String(),
+            'started_at' => $session->started_at, // Deixar o Laravel tratar a serialização do Carbon
         ]);
     }
 

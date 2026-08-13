@@ -8,6 +8,12 @@ class CollaborativeSession extends Model
 {
     protected $fillable = ['notebook_id', 'is_active', 'started_at', 'ended_at'];
 
+    protected $casts = [
+        'started_at' => 'datetime',
+        'ended_at' => 'datetime',
+        'is_active' => 'boolean',
+    ];
+
     public function notebook()
     {
         return $this->belongsTo(Notebook::class);
