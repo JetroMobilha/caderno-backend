@@ -17,10 +17,15 @@ class CollaborativeSessionController extends Controller
     public function join(Request $request, $notebook_id)
     {
         $user = $request->user();
-        $notebook = Notebook::find($notebook_id);
-        if (!$notebook) return response()->json(['error' => 'Notebook not found'], 404);
+        Log::info("🎯 [Session] Utilizador {$user->id} a tentar entrar no caderno $notebook_id");
 
-        // 🚀 CALCULAR PAPEL REAL DO UTILIZADOR
+        $notebook = Notebook::find($notebook_id);
+        if (!$notebook) {
+            Log::error("❌ [Session] Caderno $notebook_id não encontrado.");
+            return response()->json(['error' => 'Notebook not found'], 404);
+        }
+
+        // Calcular papel
         $userRole = 'student';
         if ($notebook->subject && $notebook->subject->user_id === $user->id) {
             $userRole = 'owner';
@@ -28,26 +33,30 @@ class CollaborativeSessionController extends Controller
             $pivot = DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->first();
             $userRole = $pivot ? $pivot->role : 'viewer';
         }
+        Log::info("👤 [Session] Papel detetado: $userRole");
 
         $session = CollaborativeSession::firstOrCreate(
             ['notebook_id' => $notebook_id, 'is_active' => true],
             ['started_at' => now()]
         );
+        Log::info("🛋️ [Session] ID da sessão: {$session->id} (Ativa: {$session->is_active})");
 
-        CollaborativeSessionParticipant::updateOrCreate(
+        $participant = CollaborativeSessionParticipant::updateOrCreate(
             ['session_id' => $session->id, 'user_id' => $user->id, 'left_at' => null],
             ['role' => $userRole, 'joined_at' => now(), 'last_heartbeat' => now()]
         );
+        Log::info("✅ [Session] Participante registado na DB: {$participant->id}");
 
         // Eleger autoridade por hierarquia de papéis e tempo de entrada
         $authority = $this->electAuthority($session);
+        Log::info("👑 [Session] Autoridade eleita: " . ($authority ? $authority->user_id : 'Ninguém'));
 
         return response()->json([
             'active' => true,
             'session_id' => $session->id,
             'authority_id' => $authority ? $authority->user_id : null,
             'participants_count' => $session->activeParticipants()->count(),
-            'started_at' => $session->started_at,
+            'started_at' => $session->started_at->toIso8601String(),
         ]);
     }
 

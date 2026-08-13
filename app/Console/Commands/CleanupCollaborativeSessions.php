@@ -16,8 +16,11 @@ class CleanupCollaborativeSessions extends Command
     {
         $this->info('🚀 Iniciando limpeza de sessões...');
 
-        // 1. Marcar como "saíram" participantes sem heartbeat há mais de 2 minutos
-        $threshold = Carbon::now()->subMinutes(2);
+        // 1. Marcar como "saíram" participantes sem heartbeat há mais de 5 minutos
+        // 🚀 Aumentamos para 5 minutos para evitar que relógios dessincronizados fechem sessões
+        $threshold = Carbon::now()->subMinutes(5);
+
+        Log::info("🧹 [Cleanup] Verificando heartbeats anteriores a: " . $threshold->toDateTimeString());
 
         $expiredCount = CollaborativeSessionParticipant::whereNull('left_at')
             ->where('last_heartbeat', '<', $threshold)
