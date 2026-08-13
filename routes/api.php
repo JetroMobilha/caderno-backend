@@ -125,10 +125,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // 🖋️ Armazenar o alfabeto personalizado do utilizador
     Route::post('/handwriting/alphabet', [UserAlphabetController::class, 'store']);
 
-    // 🤝 Gestão de Sessões Colaborativas
-    Route::get('/notebooks/{id}/session-status', [App\Http\Controllers\CollaborativeSessionController::class, 'getStatus']);
-
-   
+    // 🤝 Gestão de Sessões Colaborativas (Arquitetura API-First)
+    Route::post('/notebooks/{id}/session/join', [App\Http\Controllers\CollaborativeSessionController::class, 'join']);
+    Route::post('/notebooks/{id}/session/heartbeat', [App\Http\Controllers\CollaborativeSessionController::class, 'heartbeat']);
+    Route::post('/notebooks/{id}/session/leave', [App\Http\Controllers\CollaborativeSessionController::class, 'leave']);
+    Route::get('/notebooks/{id}/session/status', [App\Http\Controllers\CollaborativeSessionController::class, 'getStatus']);
 });
 
- 
+

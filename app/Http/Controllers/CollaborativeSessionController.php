@@ -11,96 +11,78 @@ use Illuminate\Support\Facades\Log;
 class CollaborativeSessionController extends Controller
 {
     /**
-     * Webhook do Reverb.
+     * O App avisa que entrou na sala.
      */
-   public function webhook(Request $request)
-{
-    // 🚀 LOG DE ENTRADA BRUTA
-    Log::info("📡 [Webhook] Tentativa de acesso!", [
-        'ip' => $request->ip(),
-        'events_count' => count($request->input('events', []))
-    ]);
+    public function join(Request $request, $notebook_id)
+    {
+        $user = $request->user();
 
-    $events = $request->input('events', []);
-
-    foreach ($events as $event) {
-        $evtName = $event['name'] ?? '';
-        $channel = $event['channel'] ?? '';
-
-        // 1. Validar apenas o canal primeiro
-        if (!str_starts_with($channel, 'presence-notebook.')) {
-            continue; // Ignora canais que não são de cadernos
-        }
-
-        $notebookId = str_replace('presence-notebook.', '', $channel);
-
-        // 2. Verificar se o caderno existe
-        $notebook = Notebook::find($notebookId);
-        if (!$notebook) {
-            Log::error("❌ [Webhook] Caderno $notebookId não encontrado na DB.");
-            continue;
-        }
-
-        // Garante que a sessão existe
         $session = CollaborativeSession::firstOrCreate(
-            ['notebook_id' => $notebookId, 'is_active' => true],
+            ['notebook_id' => $notebook_id, 'is_active' => true],
             ['started_at' => now()]
         );
 
-        // 3. Lógica específica por evento
-        if ($evtName === 'channel_occupied') {
-            Log::info("🔋 [Webhook] Canal ocupado. Sessão {$session->id} ativa.");
-            if (!$session->is_active) {
-                $session->update(['is_active' => true, 'ended_at' => null]);
-            }
-        } 
-        elseif ($evtName === 'channel_vacated') {
-            Log::info("🧹 [Webhook] Canal totalmente vazio. Encerrando sessão {$session->id}");
-            $session->update(['is_active' => false, 'ended_at' => now()]);
+        CollaborativeSessionParticipant::updateOrCreate(
+            ['session_id' => $session->id, 'user_id' => $user->id, 'left_at' => null],
+            ['joined_at' => now(), 'last_heartbeat' => now()]
+        );
 
-            // Marcar todos os que ficaram "pendurados" como tendo saído
-            CollaborativeSessionParticipant::where('session_id', $session->id)
-                ->whereNull('left_at')
-                ->update(['left_at' => now()]);
-        } 
-        elseif (in_array($evtName, ['member_added', 'member_removed'])) {
-            // 4. Aqui sim, o user_id é obrigatório
-            $userId = $event['user_id'] ?? null;
-            if (!$userId && isset($event['data'])) {
-                $evtData = is_array($event['data']) ? $event['data'] : json_decode($event['data'], true);
-                $userId = $evtData['user_id'] ?? $evtData['id'] ?? null;
-            }
+        // Eleger autoridade (quem entrou primeiro e ainda está online)
+        $authority = $session->activeParticipants()->orderBy('joined_at', 'asc')->first();
 
-            if (!$userId) {
-                Log::warning("⚠️ [Webhook] Evento $evtName sem user_id", ['event' => $event]);
-                continue;
-            }
-
-            if ($evtName === 'member_added') {
-                Log::info("🟢 [Webhook] Entrada do utilizador $userId na sessão {$session->id}");
-                CollaborativeSessionParticipant::updateOrCreate(
-                    ['session_id' => $session->id, 'user_id' => $userId, 'left_at' => null],
-                    [
-                        'joined_at' => now(),
-                        'socket_id' => $event['socket_id'] ?? null
-                    ]
-                );
-            } 
-            elseif ($evtName === 'member_removed') {
-                Log::info("🔴 [Webhook] Saída do utilizador $userId");
-                CollaborativeSessionParticipant::where('session_id', $session->id)
-                    ->where('user_id', $userId)
-                    ->whereNull('left_at')
-                    ->update(['left_at' => now()]);
-            }
-        }
+        return response()->json([
+            'active' => true,
+            'session_id' => $session->id,
+            'authority_id' => $authority ? $authority->user_id : null,
+            'participants_count' => $session->activeParticipants()->count(),
+            'started_at' => $session->started_at,
+        ]);
     }
 
-    return response()->json(['status' => 'ok']);
-}
+    /**
+     * O App envia um sinal de vida periódico (Heartbeat).
+     */
+    public function heartbeat(Request $request, $notebook_id)
+    {
+        $user = $request->user();
+
+        $participant = CollaborativeSessionParticipant::whereHas('session', function($q) use ($notebook_id) {
+            $q->where('notebook_id', $notebook_id)->where('is_active', true);
+        })->where('user_id', $user->id)->whereNull('left_at')->first();
+
+        if ($participant) {
+            $participant->update(['last_heartbeat' => now()]);
+            return response()->json(['status' => 'alive']);
+        }
+
+        return response()->json(['status' => 'session_not_found'], 404);
+    }
 
     /**
-     * Retorna o status da sessão e quem é a autoridade atual.
+     * O App avisa que vai sair.
+     */
+    public function leave(Request $request, $notebook_id)
+    {
+        $user = $request->user();
+
+        $participant = CollaborativeSessionParticipant::whereHas('session', function($q) use ($notebook_id) {
+            $q->where('notebook_id', $notebook_id)->where('is_active', true);
+        })->where('user_id', $user->id)->whereNull('left_at')->first();
+
+        if ($participant) {
+            $participant->update(['left_at' => now()]);
+
+            $session = $participant->session;
+            if ($session->activeParticipants()->count() === 0) {
+                $session->update(['is_active' => false, 'ended_at' => now()]);
+            }
+        }
+
+        return response()->json(['status' => 'left']);
+    }
+
+    /**
+     * Retorna o status da sessão (usado para consulta rápida).
      */
     public function getStatus(Request $request, $notebook_id)
     {
@@ -109,24 +91,38 @@ class CollaborativeSessionController extends Controller
             ->first();
 
         if (!$session) {
-            return response()->json(array('active' => false));
+            return response()->json(['active' => false]);
         }
 
         $authority = $session->activeParticipants()
             ->orderBy('joined_at', 'asc')
-            ->with('user')
+            ->with('user:id,name')
             ->first();
 
-        $authorityId = $authority ? $authority->user_id : null;
-        $authorityName = ($authority && $authority->user) ? $authority->user->name : null;
-        $participantsCount = $session->activeParticipants()->count();
-
-        return response()->json(array(
+        return response()->json([
             'active' => true,
-            'authority_id' => $authorityId,
-            'authority_name' => $authorityName,
-            'participants_count' => $participantsCount,
-            'started_at' => $session->started_at
-        ));
+            'authority_id' => $authority ? $authority->user_id : null,
+            'authority_name' => $authority ? $authority->user->name : null,
+            'participants_count' => $session->activeParticipants()->count(),
+            'started_at' => $session->started_at,
+        ]);
+    }
+
+    /**
+     * Webhook (Mantido apenas como redundância/compatibilidade futura).
+     */
+    public function webhook(Request $request)
+    {
+        $events = $request->input('events', []);
+        foreach ($events as $event) {
+            $evtName = $event['name'] ?? '';
+            $channel = $event['channel'] ?? '';
+            if (!str_starts_with($channel, 'presence-notebook.')) continue;
+            $notebookId = str_replace('presence-notebook.', '', $channel);
+
+            // Aqui poderíamos processar member_added/removed se o Reverb suportasse,
+            // mas como não suporta bem, a lógica join/leave/heartbeat acima é a oficial.
+        }
+        return response()->json(['status' => 'ok']);
     }
 }
