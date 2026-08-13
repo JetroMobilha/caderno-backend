@@ -7,6 +7,7 @@ use App\Models\CollaborativeSession;
 use App\Models\CollaborativeSessionParticipant;
 use App\Models\Notebook;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class CollaborativeSessionController extends Controller
 {
@@ -16,6 +17,17 @@ class CollaborativeSessionController extends Controller
     public function join(Request $request, $notebook_id)
     {
         $user = $request->user();
+        $notebook = Notebook::find($notebook_id);
+        if (!$notebook) return response()->json(['error' => 'Notebook not found'], 404);
+
+        // 🚀 CALCULAR PAPEL REAL DO UTILIZADOR
+        $userRole = 'student';
+        if ($notebook->subject && $notebook->subject->user_id === $user->id) {
+            $userRole = 'owner';
+        } else {
+            $pivot = DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->first();
+            $userRole = $pivot ? $pivot->role : 'viewer';
+        }
 
         $session = CollaborativeSession::firstOrCreate(
             ['notebook_id' => $notebook_id, 'is_active' => true],
@@ -24,11 +36,11 @@ class CollaborativeSessionController extends Controller
 
         CollaborativeSessionParticipant::updateOrCreate(
             ['session_id' => $session->id, 'user_id' => $user->id, 'left_at' => null],
-            ['joined_at' => now(), 'last_heartbeat' => now()]
+            ['role' => $userRole, 'joined_at' => now(), 'last_heartbeat' => now()]
         );
 
-        // Eleger autoridade (quem entrou primeiro e ainda está online)
-        $authority = $session->activeParticipants()->orderBy('joined_at', 'asc')->first();
+        // Eleger autoridade por hierarquia de papéis e tempo de entrada
+        $authority = $this->electAuthority($session);
 
         return response()->json([
             'active' => true,
@@ -94,10 +106,7 @@ class CollaborativeSessionController extends Controller
             return response()->json(['active' => false]);
         }
 
-        $authority = $session->activeParticipants()
-            ->orderBy('joined_at', 'asc')
-            ->with('user:id,name')
-            ->first();
+        $authority = $this->electAuthority($session);
 
         return response()->json([
             'active' => true,
@@ -106,6 +115,25 @@ class CollaborativeSessionController extends Controller
             'participants_count' => $session->activeParticipants()->count(),
             'started_at' => $session->started_at,
         ]);
+    }
+
+    /**
+     * Eleger o "Líder" da sessão baseado na hierarquia de papéis.
+     */
+    private function electAuthority(CollaborativeSession $session)
+    {
+        return CollaborativeSessionParticipant::where('session_id', $session->id)
+            ->whereNull('left_at')
+            ->select('collaborative_session_participants.*')
+            ->join('users', 'users.id', '=', 'collaborative_session_participants.user_id')
+            ->orderByRaw("CASE
+                WHEN role = 'owner' THEN 1
+                WHEN role = 'editor' THEN 2
+                WHEN role = 'student' THEN 3
+                ELSE 4 END ASC")
+            ->orderBy('joined_at', 'asc')
+            ->with('user:id,name')
+            ->first();
     }
 
     /**

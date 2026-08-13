@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class CollaborativeSessionParticipant extends Model
 {
-    protected $fillable = ['session_id', 'user_id', 'joined_at', 'left_at', 'last_heartbeat', 'socket_id'];
+    protected $fillable = ['session_id', 'user_id', 'role', 'joined_at', 'left_at', 'last_heartbeat', 'socket_id'];
 
     public function session()
     {
