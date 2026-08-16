@@ -157,18 +157,30 @@ class SyncService
 
             if ($session && $session->sharing_type === 'scoped') {
                 $sharedPageIds = CollaborativeSessionPage::where('session_id', $session->id)->pluck('page_id');
-                if ($sharedPageIds->isNotEmpty()) {
-                    $query->whereIn('id', $sharedPageIds);
-                    Log::info("🔒 [Sync] Estrutura da sessão {$session->id} filtrada para " . count($sharedPageIds) . " páginas.");
-                }
+                $query->whereIn('id', $sharedPageIds);
+                Log::info("🔒 [Sync] Estrutura da sessão {$session->id} filtrada.");
             }
 
             $structure = $query->orderBy('page_number')
                 ->orderBy('client_id')
-                ->get(['client_id', 'page_number'])
+                ->get(['id', 'client_id', 'page_number', 'updated_at_ms', 'is_frozen', 'paper_size', 'stroke_data', 'text_data', 'image_data'])
+                ->map(function($p) {
+                    return [
+                        'id' => $p->id,
+                        'client_id' => $p->client_id,
+                        'page_number' => $p->page_number,
+                        'updated_at_ms' => $p->updated_at_ms,
+                        'fingerprint' => $p->generateFingerprint(),
+                    ];
+                })
                 ->toArray();
 
-            NotebookStructureUpdated::dispatch($notebook, $structure);
+            NotebookStructureUpdated::dispatch(
+                $notebook,
+                $structure,
+                $session ? $session->alternative_title : null,
+                $session ? $session->sharing_type : 'full'
+            );
         } catch (\Exception $e) {
             Log::error("🚨 [Sync] Falha ao disparar NotebookStructureUpdated: " . $e->getMessage());
         }

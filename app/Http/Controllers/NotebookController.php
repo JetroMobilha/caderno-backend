@@ -280,6 +280,11 @@ class NotebookController extends Controller
             ->where('user_id', $guest->id)
             ->delete();
 
+        // 🚀 NOTIFICAR O UTILIZADOR QUE O ACESSO FOI REVOGADO
+        try {
+            \App\Events\NotebookAccessRevoked::dispatch($notebook, $guest->id);
+        } catch (\Exception $e) {}
+
         return response()->json(['message' => 'Acesso revogado com sucesso.']);
     }
 

@@ -19,7 +19,9 @@ class NotebookStructureUpdated implements ShouldBroadcast
      */
     public function __construct(
         public Notebook $notebook,
-        public array $structure // Array de ['client_id' => ..., 'page_number' => ...]
+        public array $structure,
+        public ?string $alternativeTitle = null,
+        public ?string $sharingType = 'full'
     ) {}
 
     /**
@@ -42,6 +44,8 @@ class NotebookStructureUpdated implements ShouldBroadcast
         return [
             'notebook_id' => $this->notebook->id,
             'structure'   => $this->structure,
+            'alternative_title' => $this->alternativeTitle,
+            'sharing_type' => $this->sharingType,
             'updated_at'  => now()->timestamp * 1000,
         ];
     }
