@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\CollaborativeSession;
+use App\Models\CollaborativeSessionPage;
 use App\Models\Page;
 use App\Models\Notebook;
 use App\Models\User;
@@ -145,8 +147,23 @@ class SyncService
     public function broadcastStructureUpdate(Notebook $notebook)
     {
         try {
-            $structure = Page::where('notebook_id', $notebook->id)
-                ->orderBy('page_number')
+            // 🚀 FILTRAR ESTRUTURA SE HOUVER SESSÃO ATIVA (WHITELIST)
+            $session = CollaborativeSession::where('notebook_id', $notebook->id)
+                ->where('is_active', true)
+                ->orderBy('started_at', 'desc')
+                ->first();
+
+            $query = Page::where('notebook_id', $notebook->id);
+
+            if ($session) {
+                $sharedPageIds = CollaborativeSessionPage::where('session_id', $session->id)->pluck('page_id');
+                if ($sharedPageIds->isNotEmpty()) {
+                    $query->whereIn('id', $sharedPageIds);
+                    Log::info("🔒 [Sync] Estrutura da sessão {$session->id} filtrada para " . count($sharedPageIds) . " páginas.");
+                }
+            }
+
+            $structure = $query->orderBy('page_number')
                 ->orderBy('client_id')
                 ->get(['client_id', 'page_number'])
                 ->toArray();

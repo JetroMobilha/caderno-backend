@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class CollaborativeSession extends Model
 {
-    protected $fillable = ['notebook_id', 'is_active', 'started_at', 'ended_at'];
+    protected $fillable = ['notebook_id', 'alternative_title', 'is_active', 'started_at', 'ended_at'];
 
     protected $casts = [
         'started_at' => 'datetime',
@@ -22,6 +22,11 @@ class CollaborativeSession extends Model
     public function participants()
     {
         return $this->hasMany(CollaborativeSessionParticipant::class, 'session_id');
+    }
+
+    public function sharedPages()
+    {
+        return $this->hasMany(CollaborativeSessionPage::class, 'session_id');
     }
 
     public function activeParticipants()

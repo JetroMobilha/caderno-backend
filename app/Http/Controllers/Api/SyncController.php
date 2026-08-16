@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Models\CollaborativeSession;
+use App\Models\CollaborativeSessionPage;
 use App\Models\Subject;
 use App\Models\Notebook;
 use App\Models\Page;
@@ -223,6 +225,17 @@ class SyncController extends Controller
             // Converter para array e injetar a role
             $data = $notebook->toArray();
             $data['role'] = $role;
+
+            // 🚀 PRIVACIDADE: Usar título alternativo se for convidado e houver sessão ativa
+            if ($role !== 'owner') {
+                $session = CollaborativeSession::where('notebook_id', $notebook->id)
+                    ->where('is_active', true)
+                    ->first();
+                if ($session && $session->alternative_title) {
+                    $data['title'] = $session->alternative_title;
+                }
+            }
+
             return $data;
         });
 
@@ -262,6 +275,14 @@ class SyncController extends Controller
         $notebookId = $request->query('notebook_id');
         $pageNumber = $request->query('page_number');
 
+        // 🚀 FILTRAGEM POR SESSÃO (WHITELIST)
+        // Se o utilizador não for o dono do caderno, ele só pode puxar páginas vinculadas a uma sessão ativa
+        $isOwner = false;
+        if ($notebookId) {
+            $notebook = Notebook::find($notebookId);
+            $isOwner = $notebook && $notebook->subject && $notebook->subject->user_id === $user->id;
+        }
+
         $query = Page::withTrashed()->whereHas('notebook', function ($q) use ($user) {
             $q->where(function ($inner) use ($user) {
                 $inner->whereHas('subject', function ($sub) use ($user) {
@@ -274,6 +295,14 @@ class SyncController extends Controller
 
         if ($notebookId) {
             $query->where('notebook_id', $notebookId);
+
+            if (!$isOwner) {
+                $session = CollaborativeSession::where('notebook_id', $notebookId)->where('is_active', true)->first();
+                if ($session) {
+                    $sharedPageIds = CollaborativeSessionPage::where('session_id', $session->id)->pluck('page_id');
+                    $query->whereIn('id', $sharedPageIds);
+                }
+            }
         }
 
         if ($pageNumber) {

@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\CollaborativeSession;
 use App\Models\CollaborativeSessionParticipant;
+use App\Models\CollaborativeSessionPage;
 use App\Models\Notebook;
+use App\Models\Page;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 
@@ -35,29 +37,79 @@ class CollaborativeSessionController extends Controller
         }
         Log::info("👤 [Session] Papel detetado: $userRole");
 
+        // 🚀 RECEBER PÁGINAS SELECIONADAS E TÍTULO ALTERNATIVO
+        $sharedPageIds = $request->input('page_ids', []);
+        $alternativeTitle = $request->input('alternative_title');
+
         $session = CollaborativeSession::firstOrCreate(
             ['notebook_id' => $notebook_id, 'is_active' => true],
             ['started_at' => now()]
         );
-        Log::info("🛋️ [Session] ID da sessão: {$session->id} (Ativa: {$session->is_active})");
+
+        if ($alternativeTitle) {
+            $session->update(['alternative_title' => $alternativeTitle]);
+        }
+        Log::info("🛋️ [Session] ID da sessão: {$session->id}");
+
+        // Se o dono enviou novas páginas, associá-las à sessão
+        if ($userRole === 'owner' && !empty($sharedPageIds)) {
+            foreach ($sharedPageIds as $pid) {
+                CollaborativeSessionPage::updateOrCreate([
+                    'session_id' => $session->id,
+                    'page_id' => $pid
+                ]);
+            }
+            Log::info("📄 [Session] " . count($sharedPageIds) . " páginas vinculadas à sala.");
+        }
 
         $participant = CollaborativeSessionParticipant::updateOrCreate(
             ['session_id' => $session->id, 'user_id' => $user->id, 'left_at' => null],
             ['role' => $userRole, 'joined_at' => now(), 'last_heartbeat' => now()]
         );
-        Log::info("✅ [Session] Participante registado na DB: {$participant->id}");
 
-        // Eleger autoridade por hierarquia de papéis e tempo de entrada
+        // Eleger autoridade por hierarquia
         $authority = $this->electAuthority($session);
-        Log::info("👑 [Session] Autoridade eleita: " . ($authority ? $authority->user_id : 'Ninguém'));
+
+        // Lista de IDs de páginas autorizadas para esta sessão (Whitelist)
+        $authorizedPages = CollaborativeSessionPage::where('session_id', $session->id)
+            ->pluck('page_id')
+            ->toArray();
 
         return response()->json([
             'active' => true,
             'session_id' => $session->id,
             'authority_id' => $authority ? $authority->user_id : null,
             'participants_count' => $session->activeParticipants()->count(),
-            'started_at' => $session->started_at, // Deixar o Laravel tratar a serialização do Carbon
+            'started_at' => $session->started_at,
+            'alternative_title' => $session->alternative_title, // 🚀
+            'authorized_page_ids' => $authorizedPages, // 🚀 Whitelist para o App
         ]);
+    }
+
+    /**
+     * Permite ao dono adicionar mais páginas à sessão em tempo real.
+     */
+    public function sharePages(Request $request, $notebook_id)
+    {
+        $user = $request->user();
+        $pageIds = $request->input('page_ids', []);
+
+        $session = CollaborativeSession::where('notebook_id', $notebook_id)->where('is_active', true)->first();
+        if (!$session) return response()->json(['error' => 'No active session'], 404);
+
+        $notebook = $session->notebook;
+        if (!$notebook->subject || $notebook->subject->user_id !== $user->id) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        foreach ($pageIds as $pid) {
+            CollaborativeSessionPage::updateOrCreate([
+                'session_id' => $session->id,
+                'page_id' => $pid
+            ]);
+        }
+
+        return response()->json(['status' => 'pages_shared', 'count' => count($pageIds)]);
     }
 
     /**
