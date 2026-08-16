@@ -24,17 +24,18 @@ Broadcast::channel('notebook.{notebookId}', function ($user, $notebookId) {
 
     // 2. Segurança: O utilizador é o Dono da Disciplina?
     $isOwner = $notebook->subject && $notebook->subject->user_id === $user->id;
-    
+
     // 3. Segurança: O utilizador é um Colaborador convidado na tabela pivô?
-    $isCollaborator = $user->sharedNotebooks()->where('notebooks.id', $notebook->id)->exists();
+    $pivot = DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->first();
+    $isCollaborator = $pivot !== null;
 
     // 🎯 Se passar num dos testes, autoriza com dados completos para a sala virtual!
     if ($isOwner || $isCollaborator) {
         return [
-            'id' => $user->id, 
+            'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
-            'role' => $isOwner ? 'owner' : 'editor'
+            'role' => $isOwner ? 'owner' : ($pivot->role ?? 'student')
         ];
     }
 
@@ -43,7 +44,7 @@ Broadcast::channel('notebook.{notebookId}', function ($user, $notebookId) {
 
 // 🚀 O CANAL PRIVADO DE SINCRONIZAÇÃO MULTI-DISPOSITIVO
 Broadcast::channel('user.{id}', function ($user, $id) {
-    // Regra de Ouro: O ID do utilizador autenticado via Sanctum 
+    // Regra de Ouro: O ID do utilizador autenticado via Sanctum
     // tem de ser exatamente igual ao ID do canal que ele tenta ouvir.
     return (int) $user->id === (int) $id;
 });
