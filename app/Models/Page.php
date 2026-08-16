@@ -45,6 +45,41 @@ class Page extends Model
     }
 
     /**
+     * 🆔 Gera um Fingerprint da página para detetar divergências (Deve bater com o Flutter)
+     */
+    public function generateFingerprint(): string
+    {
+        $components = [];
+
+        // 1. Strokes
+        $strokes = is_array($this->stroke_data) ? $this->stroke_data : json_decode($this->stroke_data ?? '[]', true) ?? [];
+        $activeStrokes = collect($strokes)->filter(fn($s) => empty($s['is_deleted']))->sortBy('id');
+        foreach ($activeStrokes as $s) {
+            $components[] = "s:{$s['id']}:" . ($s['updated_at'] ?? 0);
+        }
+
+        // 2. Texts
+        $texts = is_array($this->text_data) ? $this->text_data : json_decode($this->text_data ?? '[]', true) ?? [];
+        $activeTexts = collect($texts)->filter(fn($t) => empty($t['is_deleted']))->sortBy('id');
+        foreach ($activeTexts as $t) {
+            $components[] = "t:{$t['id']}:" . ($t['updated_at'] ?? 0);
+        }
+
+        // 3. Images
+        $images = is_array($this->image_data) ? $this->image_data : json_decode($this->image_data ?? '[]', true) ?? [];
+        $activeImages = collect($images)->filter(fn($i) => empty($i['is_deleted']))->sortBy('id');
+        foreach ($activeImages as $i) {
+            $components[] = "i:{$i['id']}:" . ($i['updated_at'] ?? 0);
+        }
+
+        // 4. Metadados Críticos
+        $components[] = "f:" . ($this->is_frozen ? 1 : 0);
+        $components[] = "ps:" . ($this->paper_size ?? 'A4');
+
+        return implode('|', $components);
+    }
+
+    /**
      * Funde os itens JSON (strokes, text, images) garantindo a integridade dos dados.
      *
      * @param mixed $oldData Dados atualmente no banco de dados.

@@ -155,7 +155,7 @@ class SyncService
 
             $query = Page::where('notebook_id', $notebook->id);
 
-            if ($session) {
+            if ($session && $session->sharing_type === 'scoped') {
                 $sharedPageIds = CollaborativeSessionPage::where('session_id', $session->id)->pluck('page_id');
                 if ($sharedPageIds->isNotEmpty()) {
                     $query->whereIn('id', $sharedPageIds);

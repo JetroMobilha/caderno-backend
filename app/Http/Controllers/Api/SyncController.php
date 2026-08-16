@@ -298,7 +298,7 @@ class SyncController extends Controller
 
             if (!$isOwner) {
                 $session = CollaborativeSession::where('notebook_id', $notebookId)->where('is_active', true)->first();
-                if ($session) {
+                if ($session && $session->sharing_type === 'scoped') {
                     $sharedPageIds = CollaborativeSessionPage::where('session_id', $session->id)->pluck('page_id');
                     $query->whereIn('id', $sharedPageIds);
                 }

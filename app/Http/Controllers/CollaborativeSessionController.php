@@ -37,22 +37,29 @@ class CollaborativeSessionController extends Controller
         }
         Log::info("👤 [Session] Papel detetado: $userRole");
 
-        // 🚀 RECEBER PÁGINAS SELECIONADAS E TÍTULO ALTERNATIVO
+        // 🚀 RECEBER PÁGINAS SELECIONADAS, TÍTULO ALTERNATIVO E TIPO DE PARTILHA
         $sharedPageIds = $request->input('page_ids', []);
         $alternativeTitle = $request->input('alternative_title');
+        $sharingType = $request->input('sharing_type', 'full'); // full ou scoped
 
         $session = CollaborativeSession::firstOrCreate(
             ['notebook_id' => $notebook_id, 'is_active' => true],
-            ['started_at' => now()]
+            ['started_at' => now(), 'sharing_type' => $sharingType]
         );
 
         if ($alternativeTitle) {
             $session->update(['alternative_title' => $alternativeTitle]);
         }
+
+        // Se mudou o tipo de partilha, atualizar (Dono apenas)
+        if ($userRole === 'owner' && $sharingType !== $session->sharing_type) {
+            $session->update(['sharing_type' => $sharingType]);
+        }
+
         Log::info("🛋️ [Session] ID da sessão: {$session->id}");
 
-        // Se o dono enviou novas páginas, associá-las à sessão
-        if ($userRole === 'owner' && !empty($sharedPageIds)) {
+        // Se o dono enviou novas páginas e o modo é scoped, associá-las à sessão
+        if ($userRole === 'owner' && $session->sharing_type === 'scoped' && !empty($sharedPageIds)) {
             foreach ($sharedPageIds as $pid) {
                 CollaborativeSessionPage::updateOrCreate([
                     'session_id' => $session->id,
@@ -70,10 +77,23 @@ class CollaborativeSessionController extends Controller
         // Eleger autoridade por hierarquia
         $authority = $this->electAuthority($session);
 
-        // Lista de IDs de páginas autorizadas para esta sessão (Whitelist)
-        $authorizedPages = CollaborativeSessionPage::where('session_id', $session->id)
-            ->pluck('page_id')
-            ->toArray();
+        // 🚀 GERAR SUMÁRIO DE PÁGINAS AUTORIZADAS (Para Otimização de Sync)
+        $query = Page::where('notebook_id', $notebook_id);
+        if ($session->sharing_type === 'scoped' && $userRole !== 'owner') {
+            $sharedPageIds = CollaborativeSessionPage::where('session_id', $session->id)->pluck('page_id');
+            $query->whereIn('id', $sharedPageIds);
+        }
+
+        $pagesSummary = $query->get(['id', 'client_id', 'page_number', 'updated_at_ms', 'is_frozen', 'paper_size', 'stroke_data', 'text_data', 'image_data'])
+            ->map(function($p) {
+                return [
+                    'id' => $p->id,
+                    'client_id' => $p->client_id,
+                    'page_number' => $p->page_number,
+                    'updated_at_ms' => $p->updated_at_ms,
+                    'fingerprint' => $p->generateFingerprint(), // ⚡ A mágica acontece aqui
+                ];
+            });
 
         return response()->json([
             'active' => true,
@@ -81,8 +101,9 @@ class CollaborativeSessionController extends Controller
             'authority_id' => $authority ? $authority->user_id : null,
             'participants_count' => $session->activeParticipants()->count(),
             'started_at' => $session->started_at,
-            'alternative_title' => $session->alternative_title, // 🚀
-            'authorized_page_ids' => $authorizedPages, // 🚀 Whitelist para o App
+            'alternative_title' => $session->alternative_title,
+            'sharing_type' => $session->sharing_type,
+            'pages_summary' => $pagesSummary, // 🚀 Sumário leve para alinhamento rápido
         ]);
     }
 
