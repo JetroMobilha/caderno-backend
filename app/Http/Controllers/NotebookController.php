@@ -9,6 +9,8 @@ use App\Models\Notebook;
 use App\Models\User;
 use App\Events\SyncRequested;
 use App\Events\NotebookDeleted;
+use App\Models\CollaborativeSession;
+use App\Models\CollaborativeSessionPage;
 use Spatie\PdfToImage\Pdf;
 use Illuminate\Support\Facades\Storage;
 use App\Models\Page;
@@ -187,7 +189,10 @@ class NotebookController extends Controller
     {
         $request->validate([
             'email' => 'required|email',
-            'role'  => 'required|in:editor,viewer,student'
+            'role'  => 'required|in:editor,viewer,student',
+            'sharing_type' => 'nullable|string|in:full,scoped',
+            'alternative_title' => 'nullable|string',
+            'page_ids' => 'nullable|array'
         ]);
 
         // 1. Garante que quem está a partilhar é o dono absoluto
@@ -208,8 +213,30 @@ class NotebookController extends Controller
         // 3. Insere ou atualiza o convite na Tabela Pivô (notebook_user)
         DB::table('notebook_user')->updateOrInsert(
             ['notebook_id' => $notebook->id, 'user_id' => $guest->id],
-            ['role' => $request->role, 'updated_at' => now()] // O Laravel trata da data
+            ['role' => $request->role, 'updated_at' => now()]
         );
+
+        // 🚀 4. CONFIGURAR SESSÃO INICIAL SE PARAMETRIZADA (Privacidade por Folhas)
+        if ($request->has('sharing_type')) {
+            $session = CollaborativeSession::firstOrCreate(
+                ['notebook_id' => $notebook->id, 'is_active' => true],
+                ['started_at' => now()]
+            );
+
+            $session->update([
+                'sharing_type' => $request->sharing_type,
+                'alternative_title' => $request->alternative_title
+            ]);
+
+            if ($request->sharing_type === 'scoped' && $request->has('page_ids')) {
+                foreach ($request->page_ids as $pid) {
+                    CollaborativeSessionPage::updateOrCreate([
+                        'session_id' => $session->id,
+                        'page_id' => $pid
+                    ]);
+                }
+            }
+        }
 
         return response()->json(['message' => 'Caderno partilhado com sucesso!']);
     }
