@@ -108,29 +108,122 @@ class CollaborativeSessionController extends Controller
     }
 
     /**
-     * Permite ao dono adicionar mais páginas à sessão em tempo real.
+     * Permite ao dono adicionar ou remover páginas à sessão e atualizar metadados.
      */
     public function sharePages(Request $request, $notebook_id)
     {
         $user = $request->user();
         $pageIds = $request->input('page_ids', []);
+        $sharingType = $request->input('sharing_type');
+        $alternativeTitle = $request->input('alternative_title');
 
         $session = CollaborativeSession::where('notebook_id', $notebook_id)->where('is_active', true)->first();
-        if (!$session) return response()->json(['error' => 'No active session'], 404);
+        if (!$session) {
+             // Se não há sessão ativa, apenas guardamos nas configurações persistentes (fallback para updateSettings)
+             return $this->updateSettings($request, $notebook_id);
+        }
 
         $notebook = $session->notebook;
         if (!$notebook->subject || $notebook->subject->user_id !== $user->id) {
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
-        foreach ($pageIds as $pid) {
-            CollaborativeSessionPage::updateOrCreate([
-                'session_id' => $session->id,
-                'page_id' => $pid
+        if ($sharingType) $session->sharing_type = $sharingType;
+        if ($alternativeTitle) $session->alternative_title = $alternativeTitle;
+        $session->save();
+
+        // Se for scoped, atualizar whitelist de páginas
+        if ($session->sharing_type === 'scoped') {
+            // Limpar anteriores e adicionar novas
+            CollaborativeSessionPage::where('session_id', $session->id)->delete();
+            foreach ($pageIds as $pid) {
+                CollaborativeSessionPage::updateOrCreate([
+                    'session_id' => $session->id,
+                    'page_id' => $pid
+                ]);
+            }
+        }
+
+        // 🚀 NOTIFICAR TODOS OS PARTICIPANTES DA MUDANÇA DE ESTRUTURA/PERMISSÕES
+        $this->broadcastStructureUpdate($session);
+
+        return response()->json(['status' => 'pages_updated', 'count' => count($pageIds)]);
+    }
+
+    /**
+     * Guarda as configurações de partilha sem precisar de uma sessão ativa.
+     */
+    public function updateSettings(Request $request, $notebook_id)
+    {
+        $user = $request->user();
+        $notebook = Notebook::findOrFail($notebook_id);
+
+        if ($notebook->subject->user_id !== $user->id) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $sharingType = $request->input('sharing_type', 'full');
+        $alternativeTitle = $request->input('alternative_title');
+        $pageIds = $request->input('page_ids', []);
+
+        // Procurar última sessão ou criar uma inativa apenas para guardar metadados
+        $session = CollaborativeSession::updateOrCreate(
+            ['notebook_id' => $notebook_id, 'is_active' => true],
+            ['sharing_type' => $sharingType, 'alternative_title' => $alternativeTitle]
+        );
+
+        if (!$session->is_active) {
+            // Se a sessão principal estiver inativa, garantimos que os dados persistem na última sessão registada
+            $session = CollaborativeSession::where('notebook_id', $notebook_id)->orderBy('id', 'desc')->first();
+            $session->update([
+                'sharing_type' => $sharingType,
+                'alternative_title' => $alternativeTitle
             ]);
         }
 
-        return response()->json(['status' => 'pages_shared', 'count' => count($pageIds)]);
+        if ($sharingType === 'scoped') {
+            CollaborativeSessionPage::where('session_id', $session->id)->delete();
+            foreach ($pageIds as $pid) {
+                CollaborativeSessionPage::create(['session_id' => $session->id, 'page_id' => $pid]);
+            }
+        }
+
+        // 🚀 Se a sessão estiver ativa, notificar os participantes imediatamente
+        if ($session->is_active) {
+            $this->broadcastStructureUpdate($session);
+        }
+
+        return response()->json(['status' => 'settings_saved']);
+    }
+
+    private function broadcastStructureUpdate(CollaborativeSession $session)
+    {
+        $notebook = $session->notebook;
+        $query = Page::where('notebook_id', $notebook->id);
+
+        $authorizedPageIds = null;
+        if ($session->sharing_type === 'scoped') {
+            $authorizedPageIds = CollaborativeSessionPage::where('session_id', $session->id)->pluck('page_id')->toArray();
+            $query->whereIn('id', $authorizedPageIds);
+        }
+
+        $pagesSummary = $query->get()->map(function($p) {
+            return [
+                'id' => $p->id,
+                'client_id' => $p->client_id,
+                'page_number' => $p->page_number,
+                'updated_at_ms' => $p->updated_at_ms,
+                'fingerprint' => $p->generateFingerprint(),
+            ];
+        });
+
+        event(new \App\Events\NotebookStructureUpdated(
+            $notebook,
+            $pagesSummary->toArray(),
+            $session->alternative_title,
+            $session->sharing_type,
+            $authorizedPageIds
+        ));
     }
 
     /**
@@ -182,24 +275,32 @@ class CollaborativeSessionController extends Controller
     {
         Log::info("🔍 [Session] Consulta de status para caderno $notebook_id");
 
+        // 🚀 RECUPERAR A ÚLTIMA SESSÃO (Mesmo que inativa)
         $session = CollaborativeSession::where('notebook_id', $notebook_id)
-            ->where('is_active', true)
             ->orderBy('started_at', 'desc')
             ->first();
 
         if (!$session) {
-            Log::warning("⚠️ [Session] Nenhuma sessão ativa encontrada para caderno $notebook_id");
+            Log::warning("⚠️ [Session] Nenhuma sessão prévia encontrada para caderno $notebook_id");
             return response()->json(['active' => false]);
         }
 
         $authority = $this->electAuthority($session);
 
+        // 🚀 LISTA DE PÁGINAS AUTORIZADAS
+        $authorizedPages = CollaborativeSessionPage::where('session_id', $session->id)
+            ->pluck('page_id')
+            ->toArray();
+
         return response()->json([
-            'active' => true,
+            'active' => (bool)$session->is_active,
             'authority_id' => $authority ? $authority->user_id : null,
             'authority_name' => $authority ? $authority->user->name : null,
-            'participants_count' => $session->activeParticipants()->count(),
+            'participants_count' => $session->is_active ? $session->activeParticipants()->count() : 0,
             'started_at' => $session->started_at,
+            'sharing_type' => $session->sharing_type,
+            'alternative_title' => $session->alternative_title,
+            'authorized_page_ids' => $authorizedPages,
         ]);
     }
 

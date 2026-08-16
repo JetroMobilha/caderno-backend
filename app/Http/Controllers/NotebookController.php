@@ -216,6 +216,11 @@ class NotebookController extends Controller
             ['role' => $request->role, 'updated_at' => now()]
         );
 
+        // 🚀 NOTIFICAR O CONVIDADO QUE TEM UM NOVO CADERNO
+        try {
+            \App\Events\SyncRequested::dispatch($guest->id);
+        } catch (\Exception $e) {}
+
         // 🚀 4. CONFIGURAR SESSÃO INICIAL SE PARAMETRIZADA (Privacidade por Folhas)
         if ($request->has('sharing_type')) {
             $session = CollaborativeSession::firstOrCreate(

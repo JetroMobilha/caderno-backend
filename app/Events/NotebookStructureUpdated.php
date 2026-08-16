@@ -21,7 +21,8 @@ class NotebookStructureUpdated implements ShouldBroadcast
         public Notebook $notebook,
         public array $structure,
         public ?string $alternativeTitle = null,
-        public ?string $sharingType = 'full'
+        public ?string $sharingType = 'full',
+        public ?array $authorizedPageIds = null
     ) {}
 
     /**
@@ -46,6 +47,7 @@ class NotebookStructureUpdated implements ShouldBroadcast
             'structure'   => $this->structure,
             'alternative_title' => $this->alternativeTitle,
             'sharing_type' => $this->sharingType,
+            'authorized_page_ids' => $this->authorizedPageIds,
             'updated_at'  => now()->timestamp * 1000,
         ];
     }
