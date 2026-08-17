@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class CollaborativeSession extends Model
 {
-    protected $fillable = ['notebook_id', 'alternative_title', 'is_active', 'started_at', 'ended_at'];
+    protected $fillable = ['notebook_id', 'alternative_title', 'sharing_type', 'is_active', 'started_at', 'ended_at'];
 
     protected $casts = [
         'started_at' => 'datetime',
