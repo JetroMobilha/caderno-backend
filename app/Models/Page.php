@@ -51,25 +51,34 @@ class Page extends Model
     {
         $components = [];
 
-        // 1. Strokes
+        // 1. Strokes - Ordenação por ID (String UUID) e uso do timestamp
         $strokes = is_array($this->stroke_data) ? $this->stroke_data : json_decode($this->stroke_data ?? '[]', true) ?? [];
-        $activeStrokes = collect($strokes)->filter(fn($s) => empty($s['is_deleted']))->sortBy('id');
+        $activeStrokes = collect($strokes)
+            ->filter(fn($s) => !($s['is_deleted'] ?? false))
+            ->sortBy(fn($s) => (string)$s['id']);
+
         foreach ($activeStrokes as $s) {
-            $components[] = "s:{$s['id']}:" . ($s['updated_at'] ?? 0);
+            $components[] = "s:{$s['id']}:" . (int)($s['updated_at'] ?? 0);
         }
 
         // 2. Texts
         $texts = is_array($this->text_data) ? $this->text_data : json_decode($this->text_data ?? '[]', true) ?? [];
-        $activeTexts = collect($texts)->filter(fn($t) => empty($t['is_deleted']))->sortBy('id');
+        $activeTexts = collect($texts)
+            ->filter(fn($t) => !($t['is_deleted'] ?? false))
+            ->sortBy(fn($t) => (string)$t['id']);
+
         foreach ($activeTexts as $t) {
-            $components[] = "t:{$t['id']}:" . ($t['updated_at'] ?? 0);
+            $components[] = "t:{$t['id']}:" . (int)($t['updated_at'] ?? 0);
         }
 
         // 3. Images
         $images = is_array($this->image_data) ? $this->image_data : json_decode($this->image_data ?? '[]', true) ?? [];
-        $activeImages = collect($images)->filter(fn($i) => empty($i['is_deleted']))->sortBy('id');
+        $activeImages = collect($images)
+            ->filter(fn($i) => !($i['is_deleted'] ?? false))
+            ->sortBy(fn($i) => (string)$i['id']);
+
         foreach ($activeImages as $i) {
-            $components[] = "i:{$i['id']}:" . ($i['updated_at'] ?? 0);
+            $components[] = "i:{$i['id']}:" . (int)($i['updated_at'] ?? 0);
         }
 
         // 4. Metadados Críticos

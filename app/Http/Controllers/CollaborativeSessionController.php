@@ -42,18 +42,24 @@ class CollaborativeSessionController extends Controller
         $alternativeTitle = $request->input('alternative_title');
         $sharingType = $request->input('sharing_type', 'full'); // full ou scoped
 
-        $session = CollaborativeSession::firstOrCreate(
-            ['notebook_id' => $notebook_id, 'is_active' => true],
-            ['started_at' => now(), 'sharing_type' => $sharingType]
-        );
+        $session = CollaborativeSession::where('notebook_id', $notebook_id)->where('is_active', true)->first();
 
-        if ($alternativeTitle) {
-            $session->update(['alternative_title' => $alternativeTitle]);
-        }
-
-        // Se mudou o tipo de partilha, atualizar (Dono apenas)
-        if ($userRole === 'owner' && $sharingType !== $session->sharing_type) {
-            $session->update(['sharing_type' => $sharingType]);
+        if (!$session) {
+            $session = CollaborativeSession::create([
+                'notebook_id' => $notebook_id,
+                'is_active' => true,
+                'started_at' => now(),
+                'sharing_type' => $sharingType,
+                'alternative_title' => $alternativeTitle
+            ]);
+        } else {
+            // Se já existe e o dono está a entrar, respeitar as novas definições enviadas
+            if ($userRole === 'owner') {
+                $session->update([
+                    'sharing_type' => $sharingType,
+                    'alternative_title' => $alternativeTitle ?? $session->alternative_title
+                ]);
+            }
         }
 
         Log::info("🛋️ [Session] ID da sessão: {$session->id}");
@@ -166,18 +172,21 @@ class CollaborativeSessionController extends Controller
         $alternativeTitle = $request->input('alternative_title');
         $pageIds = $request->input('page_ids', []);
 
-        // Procurar última sessão ou criar uma inativa apenas para guardar metadados
-        $session = CollaborativeSession::updateOrCreate(
-            ['notebook_id' => $notebook_id, 'is_active' => true],
-            ['sharing_type' => $sharingType, 'alternative_title' => $alternativeTitle]
-        );
+        // Procurar última sessão ativa ou criar uma persistente
+        $session = CollaborativeSession::where('notebook_id', $notebook_id)->orderBy('id', 'desc')->first();
 
-        if (!$session->is_active) {
-            // Se a sessão principal estiver inativa, garantimos que os dados persistem na última sessão registada
-            $session = CollaborativeSession::where('notebook_id', $notebook_id)->orderBy('id', 'desc')->first();
+        if ($session) {
             $session->update([
                 'sharing_type' => $sharingType,
                 'alternative_title' => $alternativeTitle
+            ]);
+        } else {
+            $session = CollaborativeSession::create([
+                'notebook_id' => $notebook_id,
+                'is_active' => false,
+                'sharing_type' => $sharingType,
+                'alternative_title' => $alternativeTitle,
+                'started_at' => now()
             ]);
         }
 
