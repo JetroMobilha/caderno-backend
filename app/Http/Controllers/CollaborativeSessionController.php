@@ -83,20 +83,22 @@ class CollaborativeSessionController extends Controller
             ->pluck('page_id')
             ->toArray();
 
-        // 🚀 GERAR SUMÁRIO DE PÁGINAS FILTRADO
+        // 🚀 GERAR SUMÁRIO DE PÁGINAS FILTRADO COM METADADOS (Título/Rodapé)
         $query = Page::where('notebook_id', $notebook_id);
         if ($session->sharing_type === 'scoped' && $userRole !== 'owner') {
             $query->whereIn('id', $authorizedPageIds);
         }
 
-        $pagesSummary = $query->get(['id', 'client_id', 'page_number', 'updated_at_ms', 'is_frozen', 'paper_size', 'stroke_data', 'text_data', 'image_data'])
+        $pagesSummary = $query->get(['id', 'client_id', 'page_number', 'updated_at_ms', 'is_frozen', 'paper_size', 'header_data', 'footer_data'])
             ->map(function($p) {
                 return [
                     'id' => $p->id,
                     'client_id' => $p->client_id,
                     'page_number' => $p->page_number,
                     'updated_at_ms' => $p->updated_at_ms,
-                    'fingerprint' => $p->generateFingerprint(), // ⚡ A mágica acontece aqui
+                    'header_data' => $p->header_data, // 🚀 Título
+                    'footer_data' => $p->footer_data, // 🚀 Rodapé
+                    'fingerprint' => $p->generateFingerprint(),
                 ];
             });
 
@@ -222,6 +224,8 @@ class CollaborativeSessionController extends Controller
                 'client_id' => $p->client_id,
                 'page_number' => $p->page_number,
                 'updated_at_ms' => $p->updated_at_ms,
+                'header_data' => $p->header_data, // 🚀 Título
+                'footer_data' => $p->footer_data, // 🚀 Rodapé
                 'fingerprint' => $p->generateFingerprint(),
             ];
         });
