@@ -1,19 +1,6 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="/">
 
   <meta charset="UTF-8">
@@ -21,26 +8,64 @@
   <meta name="description" content="O teu caderno inteligente para notas, desenhos e colaboração em tempo real.">
 
   <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Caderno Digital">
+  <meta name="apple-mobile-web-app-title" content="Caderno">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="icons/Icon-192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/Icon-192.png">
+  <link rel="apple-touch-icon" sizes="167x167" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
+  <!-- PWA Splash Screen for iOS -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0F4C5C">
+
   <title>Caderno Digital</title>
   <link rel="manifest" href="manifest.json">
-</head>
-<body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <script>
+    // The value below is injected by flutter build web, do not touch.
+    const serviceWorkerVersion = "2216971823" /* Flutter's service worker is deprecated and will be removed in a future Flutter release. */;
+  </script>
+</head>
+<body style="background-color: #FDFBF7;">
   <script src="flutter_bootstrap.js" async></script>
+
+  <script>
+    // Detect beforeinstallprompt and optionally show install button
+    window.addEventListener('beforeinstallprompt', (e) => {
+      // Prevent Chrome 67 and earlier from automatically showing the prompt
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      window.deferredPrompt = e;
+      console.log('PWA: prompt de instalação detetado e capturado');
+
+      // Notify Flutter that the app is installable
+      window.dispatchEvent(new CustomEvent('pwa_installable'));
+    });
+
+    window.addEventListener('appinstalled', (evt) => {
+      console.log('PWA: App instalada com sucesso');
+      window.deferredPrompt = null;
+    });
+
+    // Function to trigger the install prompt from Flutter
+    window.triggerPwaInstall = () => {
+      if (window.deferredPrompt) {
+        window.deferredPrompt.prompt();
+        window.deferredPrompt.userChoice.then((choiceResult) => {
+          if (choiceResult.outcome === 'accepted') {
+            console.log('PWA: Utilizador aceitou a instalação');
+          } else {
+            console.log('PWA: Utilizador recusou a instalação');
+          }
+          window.deferredPrompt = null;
+        });
+      }
+    };
+  </script>
 </body>
 </html>

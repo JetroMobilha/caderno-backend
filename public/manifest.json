@@ -1,23 +1,47 @@
 {
     "name": "Caderno Digital",
     "short_name": "Caderno",
-    "start_url": ".",
+    "start_url": "./",
     "display": "standalone",
     "background_color": "#FDFBF7",
     "theme_color": "#0F4C5C",
     "description": "O teu caderno inteligente para notas, desenhos e colaboração em tempo real.",
-    "orientation": "any",
+    "orientation": "portrait-primary",
     "prefer_related_applications": false,
+    "id": "caderno-digital-app",
+    "scope": "./",
+    "categories": [
+        "education",
+        "productivity"
+    ],
+    "shortcuts": [
+        {
+            "name": "Nova Nota",
+            "short_name": "Nova",
+            "description": "Criar uma nova nota rapidamente",
+            "url": "./#/new-note",
+            "icons": [{ "src": "icons/Icon-192.png", "sizes": "192x192" }]
+        },
+        {
+            "name": "Abrir Agenda",
+            "short_name": "Agenda",
+            "description": "Consultar a tua agenda de estudos",
+            "url": "./#/agenda",
+            "icons": [{ "src": "icons/Icon-192.png", "sizes": "192x192" }]
+        }
+    ],
     "icons": [
         {
             "src": "icons/Icon-192.png",
             "sizes": "192x192",
-            "type": "image/png"
+            "type": "image/png",
+            "purpose": "any"
         },
         {
             "src": "icons/Icon-512.png",
             "sizes": "512x512",
-            "type": "image/png"
+            "type": "image/png",
+            "purpose": "any"
         },
         {
             "src": "icons/Icon-maskable-192.png",
