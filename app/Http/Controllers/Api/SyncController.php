@@ -226,6 +226,11 @@ class SyncController extends Controller
             $data = $notebook->toArray();
             $data['role'] = $role;
 
+            // 🚀 INJETAR AUTOR REAL: Se for partilhado, garantir que o nome do dono aparece
+            if ($role !== 'owner' && $notebook->subject && $notebook->subject->user) {
+                $data['author_name'] = $notebook->subject->user->name;
+            }
+
             // 🚀 PRIVACIDADE & ESTADO LIVE: Buscar sessão ativa para metadados dinâmicos
             $session = CollaborativeSession::where('notebook_id', $notebook->id)
                 ->where('is_active', true)

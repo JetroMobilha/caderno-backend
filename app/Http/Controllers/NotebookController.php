@@ -81,6 +81,7 @@ class NotebookController extends Controller
             'line_type'   => $request->line_type ?? 'ruled',
             'paper_size'  => $request->paper_size ?? 'A4',
             'line_spacing' => $request->line_spacing ?? 28,
+            'author_name' => $request->user()->name, // 🚀 Gravar autor original
         ]);
 
         SyncRequested::dispatch($request->user()->id);
