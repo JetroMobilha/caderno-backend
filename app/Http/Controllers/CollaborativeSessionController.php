@@ -83,11 +83,15 @@ class CollaborativeSessionController extends Controller
         // Eleger autoridade por hierarquia
         $authority = $this->electAuthority($session);
 
-        // 🚀 GERAR SUMÁRIO DE PÁGINAS AUTORIZADAS (Para Otimização de Sync)
+        // 🚀 LISTA DE PÁGINAS AUTORIZADAS (Para o App saber o que mostrar)
+        $authorizedPageIds = CollaborativeSessionPage::where('session_id', $session->id)
+            ->pluck('page_id')
+            ->toArray();
+
+        // 🚀 GERAR SUMÁRIO DE PÁGINAS FILTRADO (Para Otimização de Sync)
         $query = Page::where('notebook_id', $notebook_id);
         if ($session->sharing_type === 'scoped' && $userRole !== 'owner') {
-            $sharedPageIds = CollaborativeSessionPage::where('session_id', $session->id)->pluck('page_id');
-            $query->whereIn('id', $sharedPageIds);
+            $query->whereIn('id', $authorizedPageIds);
         }
 
         $pagesSummary = $query->get(['id', 'client_id', 'page_number', 'updated_at_ms', 'is_frozen', 'paper_size', 'stroke_data', 'text_data', 'image_data'])
@@ -109,6 +113,7 @@ class CollaborativeSessionController extends Controller
             'started_at' => $session->started_at,
             'alternative_title' => $session->alternative_title,
             'sharing_type' => $session->sharing_type,
+            'authorized_page_ids' => $authorizedPageIds, // 🚀 FUNDAMENTAL PARA O CONVIDADO
             'pages_summary' => $pagesSummary, // 🚀 Sumário leve para alinhamento rápido
         ]);
     }
