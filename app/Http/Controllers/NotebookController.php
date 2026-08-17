@@ -29,11 +29,20 @@ class NotebookController extends Controller
             $shared = DB::table('notebooks')
                 ->join('notebook_user', 'notebooks.id', '=', 'notebook_user.notebook_id')
                 ->where('notebook_user.user_id', $user->id)
-                ->whereNull('notebooks.deleted_at') // 🛡️ Correção de fantasmas
+                ->whereNull('notebooks.deleted_at')
                 ->select('notebooks.*', 'notebook_user.role')
                 ->get()
                 ->map(function($n) {
                     $n->subject_id = -1;
+
+                    // 🚀 Adicionar metadados de sessão viva
+                    $session = CollaborativeSession::where('notebook_id', $n->id)
+                        ->where('is_active', true)
+                        ->first();
+
+                    $n->alternative_title = $session ? $session->alternative_title : null;
+                    $n->sharing_type = $session ? $session->sharing_type : 'full';
+
                     return $n;
                 });
             return response()->json($shared);
@@ -195,10 +204,20 @@ class NotebookController extends Controller
             'page_ids' => 'nullable|array'
         ]);
 
-        // 1. Garante que quem está a partilhar é o dono absoluto
-        $notebook = Notebook::whereHas('subject', function($q) use ($request) {
-            $q->where('user_id', $request->user()->id);
-        })->findOrFail($id);
+        $user = $request->user();
+        $notebook = Notebook::findOrFail($id);
+
+        // 🛡️ PERMISSÃO: Apenas dono ou editor pode partilhar com terceiros
+        $isOwner = $notebook->subject && $notebook->subject->user_id === $user->id;
+        $isEditor = DB::table('notebook_user')
+            ->where('notebook_id', $id)
+            ->where('user_id', $user->id)
+            ->where('role', 'editor')
+            ->exists();
+
+        if (!$isOwner && !$isEditor) {
+            return response()->json(['message' => 'Não tens permissão para partilhar este caderno.'], 403);
+        }
 
         // 2. Procura o convidado pelo e-mail
         $guest = User::where('email', $request->email)->first();
@@ -272,25 +291,33 @@ class NotebookController extends Controller
     public function unshare(Request $request, $id)
     {
         $request->validate(['email' => 'required|email']);
+        $user = $request->user();
+        $notebook = Notebook::findOrFail($id);
 
-        $notebook = Notebook::whereHas('subject', function($q) use ($request) {
-            $q->where('user_id', $request->user()->id);
-        })->findOrFail($id);
+        $targetUser = \App\Models\User::where('email', $request->email)->firstOrFail();
 
-        $guest = \App\Models\User::where('email', $request->email)->firstOrFail();
+        // 🛡️ LÓGICA DE SEGURANÇA:
+        // 1. O dono pode remover qualquer um.
+        // 2. Um convidado pode remover-se a si próprio ("Sair").
+        $isOwner = $notebook->subject && $notebook->subject->user_id === $user->id;
+        $isSelf = $targetUser->id === $user->id;
+
+        if (!$isOwner && !$isSelf) {
+            return response()->json(['message' => 'Não tens permissão para remover este utilizador.'], 403);
+        }
 
         // Elimina o vínculo na tabela pivô
         DB::table('notebook_user')
             ->where('notebook_id', $notebook->id)
-            ->where('user_id', $guest->id)
+            ->where('user_id', $targetUser->id)
             ->delete();
 
         // 🚀 NOTIFICAR O UTILIZADOR QUE O ACESSO FOI REVOGADO
         try {
-            \App\Events\NotebookAccessRevoked::dispatch($notebook, $guest->id);
+            \App\Events\NotebookAccessRevoked::dispatch($notebook, $targetUser->id);
         } catch (\Exception $e) {}
 
-        return response()->json(['message' => 'Acesso revogado com sucesso.']);
+        return response()->json(['message' => $isSelf ? 'Saíste do caderno com sucesso.' : 'Acesso revogado com sucesso.']);
     }
 
     public function uploadImage(Request $request, $id) {

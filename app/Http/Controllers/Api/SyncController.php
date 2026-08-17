@@ -226,14 +226,17 @@ class SyncController extends Controller
             $data = $notebook->toArray();
             $data['role'] = $role;
 
-            // 🚀 PRIVACIDADE: Usar título alternativo se for convidado e houver sessão ativa
-            if ($role !== 'owner') {
-                $session = CollaborativeSession::where('notebook_id', $notebook->id)
-                    ->where('is_active', true)
-                    ->first();
-                if ($session && $session->alternative_title) {
-                    $data['title'] = $session->alternative_title;
-                }
+            // 🚀 PRIVACIDADE & ESTADO LIVE: Buscar sessão ativa para metadados dinâmicos
+            $session = CollaborativeSession::where('notebook_id', $notebook->id)
+                ->where('is_active', true)
+                ->first();
+
+            if ($session) {
+                $data['alternative_title'] = $session->alternative_title;
+                $data['sharing_type'] = $session->sharing_type;
+            } else {
+                $data['alternative_title'] = null;
+                $data['sharing_type'] = 'full';
             }
 
             return $data;
