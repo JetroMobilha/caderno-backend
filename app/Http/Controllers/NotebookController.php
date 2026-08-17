@@ -260,7 +260,7 @@ class NotebookController extends Controller
             // 🚀 CORREÇÃO AQUI: users.id cruza com notebook_user.user_id !
             ->join('notebook_user', 'users.id', '=', 'notebook_user.user_id')
             ->where('notebook_user.notebook_id', $notebook->id)
-            ->select('users.name', 'users.email', 'notebook_user.role')
+            ->select('users.id', 'users.name', 'users.email', 'notebook_user.role')
             ->get();
 
         return response()->json($collaborators);
