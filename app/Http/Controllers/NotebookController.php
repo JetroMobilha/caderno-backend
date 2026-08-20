@@ -283,10 +283,17 @@ class NotebookController extends Controller
         $collaborators = DB::table('users')
             ->join('notebook_user', 'users.id', '=', 'notebook_user.user_id')
             ->where('notebook_user.notebook_id', $notebook->id)
-            ->select('users.id', 'users.name', 'users.email', 'notebook_user.role', 'notebook_user.can_speak')
-            ->get();
+            ->select('users.id', 'users.name', 'users.email', 'notebook_user.role');
 
-        return response()->json($collaborators);
+        // 🚀 RESILIÊNCIA: Só pedir can_speak se a coluna existir (evita erro 500 se migration não correu)
+        if (Schema::hasColumn('notebook_user', 'can_speak')) {
+            $collaborators->addSelect('notebook_user.can_speak');
+        } else {
+            // Fallback virtual para não quebrar o Flutter
+            $collaborators->addSelect(DB::raw('1 as can_speak'));
+        }
+
+        return response()->json($collaborators->get());
     }
 
     // =========================================================================

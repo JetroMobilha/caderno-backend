@@ -160,6 +160,7 @@ class SyncController extends Controller
                 'client_id'  => $data['client_id'],
                 'subject_id' => $data['subject_id'],
                 'title'      => $data['title'] ?? '',
+                'color'      => $data['color'] ?? null, // 🚀 Persistir cor do caderno
                 'template_type' => $data['template_type'] ?? 'study',
                 'collaboration_mode' => $data['collaboration_mode'] ?? 'study_group',
                 'line_type'  => $data['line_type'] ?? 'ruled',
