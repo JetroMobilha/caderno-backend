@@ -50,6 +50,7 @@ class CollaborativeSessionController extends Controller
                 'is_active' => true,
                 'started_at' => now(),
                 'sharing_type' => $sharingType,
+                'voice_mode' => 'open', // 🚀 Padrão: Aberto
                 'alternative_title' => $alternativeTitle
             ]);
         } else {
@@ -72,7 +73,13 @@ class CollaborativeSessionController extends Controller
 
         $participant = CollaborativeSessionParticipant::updateOrCreate(
             ['session_id' => $session->id, 'user_id' => $user->id, 'left_at' => null],
-            ['role' => $userRole, 'joined_at' => now(), 'last_heartbeat' => now()]
+            [
+                'role' => $userRole,
+                'joined_at' => now(),
+                'last_heartbeat' => now(),
+                // 🚀 Se for owner/editor, sempre pode falar. Se for student, depende do modo.
+                'can_speak' => in_array($userRole, ['owner', 'editor']) ? true : ($session->voice_mode === 'open')
+            ]
         );
 
         // Eleger autoridade por hierarquia
@@ -110,6 +117,8 @@ class CollaborativeSessionController extends Controller
             'started_at' => $session->started_at,
             'alternative_title' => $session->alternative_title,
             'sharing_type' => $session->sharing_type,
+            'voice_mode' => $session->voice_mode, // 🚀
+            'can_speak' => (bool)$participant->can_speak, // 🚀
             'authorized_page_ids' => $authorizedPageIds, // 🚀 FUNDAMENTAL PARA O CONVIDADO
             'pages_summary' => $pagesSummary, // 🚀 Sumário leve para alinhamento rápido
         ]);
@@ -171,6 +180,7 @@ class CollaborativeSessionController extends Controller
         }
 
         $sharingType = $request->input('sharing_type', 'full');
+        $voiceMode = $request->input('voice_mode', 'open'); // 🚀
         $alternativeTitle = $request->input('alternative_title');
         $pageIds = $request->input('page_ids', []);
 
@@ -180,6 +190,7 @@ class CollaborativeSessionController extends Controller
         if ($session) {
             $session->update([
                 'sharing_type' => $sharingType,
+                'voice_mode' => $voiceMode, // 🚀
                 'alternative_title' => $alternativeTitle
             ]);
         } else {
@@ -187,9 +198,26 @@ class CollaborativeSessionController extends Controller
                 'notebook_id' => $notebook_id,
                 'is_active' => false,
                 'sharing_type' => $sharingType,
+                'voice_mode' => $voiceMode, // 🚀
                 'alternative_title' => $alternativeTitle,
                 'started_at' => now()
             ]);
+        }
+
+        // Se o modo de voz mudou, atualizar permissões de quem já está na sala
+        if ($session->is_active) {
+            if ($voiceMode === 'open') {
+                CollaborativeSessionParticipant::where('session_id', $session->id)
+                    ->whereNull('left_at')
+                    ->update(['can_speak' => true]);
+            } elseif ($voiceMode === 'authority_only') {
+                CollaborativeSessionParticipant::where('session_id', $session->id)
+                    ->whereNull('left_at')
+                    ->whereNotIn('role', ['owner', 'editor'])
+                    ->update(['can_speak' => false]);
+            }
+
+            event(new \App\Events\VoicePolicyUpdated($session));
         }
 
         if ($sharingType === 'scoped') {
@@ -305,6 +333,11 @@ class CollaborativeSessionController extends Controller
             ->pluck('page_id')
             ->toArray();
 
+        $participant = CollaborativeSessionParticipant::where('session_id', $session->id)
+            ->where('user_id', $user->id)
+            ->whereNull('left_at')
+            ->first();
+
         return response()->json([
             'active' => (bool)$session->is_active,
             'authority_id' => $authority ? $authority->user_id : null,
@@ -312,6 +345,8 @@ class CollaborativeSessionController extends Controller
             'participants_count' => $session->is_active ? $session->activeParticipants()->count() : 0,
             'started_at' => $session->started_at,
             'sharing_type' => $session->sharing_type,
+            'voice_mode' => $session->voice_mode, // 🚀
+            'can_speak' => $participant ? (bool)$participant->can_speak : false, // 🚀
             'alternative_title' => $session->alternative_title,
             'authorized_page_ids' => $authorizedPages,
         ]);
@@ -352,5 +387,37 @@ class CollaborativeSessionController extends Controller
             // mas como não suporta bem, a lógica join/leave/heartbeat acima é a oficial.
         }
         return response()->json(['status' => 'ok']);
+    }
+
+    /**
+     * Permite ao dono/editor autorizar ou bloquear a voz de um participante específico.
+     */
+    public function toggleParticipantVoice(Request $request, $notebook_id)
+    {
+        $user = $request->user();
+        $targetUserId = $request->input('user_id');
+        $allowed = $request->input('allowed', false);
+
+        $session = CollaborativeSession::where('notebook_id', $notebook_id)->where('is_active', true)->firstOrFail();
+
+        // Validar se quem pede tem autoridade
+        $notebook = $session->notebook;
+        $isOwner = $notebook->subject && $notebook->subject->user_id === $user->id;
+        $isEditor = DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->where('role', 'editor')->exists();
+
+        if (!$isOwner && !$isEditor) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $participant = CollaborativeSessionParticipant::where('session_id', $session->id)
+            ->where('user_id', $targetUserId)
+            ->whereNull('left_at')
+            ->firstOrFail();
+
+        $participant->update(['can_speak' => $allowed]);
+
+        event(new \App\Events\VoicePolicyUpdated($session, $targetUserId, $allowed));
+
+        return response()->json(['status' => 'voice_updated', 'user_id' => $targetUserId, 'allowed' => $allowed]);
     }
 }

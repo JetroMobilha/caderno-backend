@@ -129,6 +129,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/notebooks/{id}/session/join', [App\Http\Controllers\CollaborativeSessionController::class, 'join']);
     Route::post('/notebooks/{id}/session/share-pages', [App\Http\Controllers\CollaborativeSessionController::class, 'sharePages']);
     Route::post('/notebooks/{id}/session/update-settings', [App\Http\Controllers\CollaborativeSessionController::class, 'updateSettings']);
+    Route::post('/notebooks/{id}/session/toggle-voice', [App\Http\Controllers\CollaborativeSessionController::class, 'toggleParticipantVoice']); // 🚀 Novo
     Route::post('/notebooks/{id}/session/heartbeat', [App\Http\Controllers\CollaborativeSessionController::class, 'heartbeat']);
     Route::post('/notebooks/{id}/session/leave', [App\Http\Controllers\CollaborativeSessionController::class, 'leave']);
     Route::get('/notebooks/{id}/session/status', [App\Http\Controllers\CollaborativeSessionController::class, 'getStatus']);
