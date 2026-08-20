@@ -271,16 +271,19 @@ class NotebookController extends Controller
     // =========================================================================
     public function getCollaborators(Request $request, $id)
     {
-        $notebook = Notebook::whereHas('subject', function($q) use ($request) {
-            $q->where('user_id', $request->user()->id);
+        $user = $request->user();
+
+        // 🛡️ PERMISSÃO: Qualquer pessoa com acesso ao caderno (dono ou convidado) pode ver a lista
+        $notebook = Notebook::where(function($q) use ($user) {
+            $q->whereHas('subject', fn($s) => $s->where('user_id', $user->id))
+              ->orWhereHas('sharedUsers', fn($s) => $s->where('user_id', $user->id));
         })->findOrFail($id);
 
         // Busca todos os convidados na tabela pivô
         $collaborators = DB::table('users')
-            // 🚀 CORREÇÃO AQUI: users.id cruza com notebook_user.user_id !
             ->join('notebook_user', 'users.id', '=', 'notebook_user.user_id')
             ->where('notebook_user.notebook_id', $notebook->id)
-            ->select('users.id', 'users.name', 'users.email', 'notebook_user.role')
+            ->select('users.id', 'users.name', 'users.email', 'notebook_user.role', 'notebook_user.can_speak')
             ->get();
 
         return response()->json($collaborators);

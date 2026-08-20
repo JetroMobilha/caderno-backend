@@ -314,6 +314,7 @@ class CollaborativeSessionController extends Controller
      */
     public function getStatus(Request $request, $notebook_id)
     {
+        $user = $request->user();
         Log::info("🔍 [Session] Consulta de status para caderno $notebook_id");
 
         // 🚀 RECUPERAR A ÚLTIMA SESSÃO (Mesmo que inativa)

@@ -16,14 +16,14 @@
     ],
     "screenshots": [
         {
-            "src": "icons/Icon-512.png",
+            "src": "app_icons/Icon-512.png",
             "sizes": "512x512",
             "type": "image/png",
             "form_factor": "wide",
             "label": "Caderno Digital Desktop"
         },
         {
-            "src": "icons/Icon-512.png",
+            "src": "app_icons/Icon-512.png",
             "sizes": "512x512",
             "type": "image/png",
             "label": "Caderno Digital Mobile"
@@ -35,37 +35,37 @@
             "short_name": "Nova",
             "description": "Criar uma nova nota rapidamente",
             "url": "./#/new-note",
-            "icons": [{ "src": "icons/Icon-192.png", "sizes": "192x192" }]
+            "icons": [{ "src": "app_icons/Icon-192.png", "sizes": "192x192" }]
         },
         {
             "name": "Abrir Agenda",
             "short_name": "Agenda",
             "description": "Consultar a tua agenda de estudos",
             "url": "./#/agenda",
-            "icons": [{ "src": "icons/Icon-192.png", "sizes": "192x192" }]
+            "icons": [{ "src": "app_icons/Icon-192.png", "sizes": "192x192" }]
         }
     ],
     "icons": [
         {
-            "src": "icons/Icon-192.png",
+            "src": "app_icons/Icon-192.png",
             "sizes": "192x192",
             "type": "image/png",
             "purpose": "any"
         },
         {
-            "src": "icons/Icon-512.png",
+            "src": "app_icons/Icon-512.png",
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "any"
         },
         {
-            "src": "icons/Icon-maskable-192.png",
+            "src": "app_icons/Icon-maskable-192.png",
             "sizes": "192x192",
             "type": "image/png",
             "purpose": "maskable"
         },
         {
-            "src": "icons/Icon-maskable-512.png",
+            "src": "app_icons/Icon-maskable-512.png",
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "maskable"
