@@ -1,7 +1,7 @@
 {
     "name": "Caderno Digital",
     "short_name": "Caderno",
-    "start_url": "./",
+    "start_url": ".",
     "display": "standalone",
     "background_color": "#FDFBF7",
     "theme_color": "#0F4C5C",
@@ -9,10 +9,25 @@
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "id": "caderno-digital-app",
-    "scope": "./",
+    "scope": ".",
     "categories": [
         "education",
         "productivity"
+    ],
+    "screenshots": [
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "form_factor": "wide",
+            "label": "Caderno Digital Desktop"
+        },
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "label": "Caderno Digital Mobile"
+        }
     ],
     "shortcuts": [
         {
