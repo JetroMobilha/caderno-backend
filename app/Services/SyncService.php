@@ -82,6 +82,8 @@ class SyncService
             'is_landscape'  => !empty($pageData['is_landscape']) ? 1 : 0,
             'is_frozen'     => !empty($pageData['is_frozen']) ? 1 : 0,
             'paper_size'    => $pageData['paper_size'] ?? 'A4',
+            'line_type'     => $pageData['line_type'] ?? ($localPage ? $localPage->line_type : null),
+            'line_spacing'  => $pageData['line_spacing'] ?? ($localPage ? $localPage->line_spacing : null),
             'header_data'   => $pageData['header_data'] ?? ($localPage ? $localPage->header_data : ['title' => '']),
             'footer_data'   => $pageData['footer_data'] ?? ($localPage ? $localPage->footer_data : ['title' => '']),
             'extracted_text'=> $pageData['extracted_text'] ?? ($localPage ? $localPage->extracted_text : null),
@@ -163,13 +165,15 @@ class SyncService
 
             $structure = $query->orderBy('page_number')
                 ->orderBy('client_id')
-                ->get(['id', 'client_id', 'page_number', 'updated_at_ms', 'is_frozen', 'paper_size', 'stroke_data', 'text_data', 'image_data'])
+                ->get(['id', 'client_id', 'page_number', 'updated_at_ms', 'is_frozen', 'paper_size', 'line_type', 'line_spacing', 'stroke_data', 'text_data', 'image_data'])
                 ->map(function($p) {
                     return [
                         'id' => $p->id,
                         'client_id' => $p->client_id,
                         'page_number' => $p->page_number,
                         'updated_at_ms' => $p->updated_at_ms,
+                        'line_type' => $p->line_type,
+                        'line_spacing' => $p->line_spacing,
                         'fingerprint' => $p->generateFingerprint(),
                     ];
                 })

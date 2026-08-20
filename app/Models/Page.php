@@ -19,6 +19,8 @@ class Page extends Model
         'header_data',
         'footer_data',
         'extracted_text',
+        'line_type',
+        'line_spacing',
         'stroke_data',
         'text_data',
         'ocr_data',
@@ -84,6 +86,8 @@ class Page extends Model
         // 4. Metadados Críticos
         $components[] = "f:" . ($this->is_frozen ? 1 : 0);
         $components[] = "ps:" . ($this->paper_size ?? 'A4');
+        $components[] = "lt:" . ($this->line_type ?? 'ruled');
+        $components[] = "ls:" . ($this->line_spacing ?? '28');
 
         return implode('|', $components);
     }
