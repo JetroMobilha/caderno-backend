@@ -97,7 +97,7 @@ class SyncController extends Controller
         return response()->json([
             'data' => $paginatedSubjects->items(),
             'links' => $paginatedSubjects->linkCollection(),
-            'meta' => ['server_time' => now()->toIso8601String()]
+            'meta' => ['server_time' => now()->format('Y-m-d\TH:i:s\Z')]
         ]);
     }
 
@@ -251,7 +251,7 @@ class SyncController extends Controller
         return response()->json([
             'data' => $items,
             'links' => $paginatedNotebooks->linkCollection(),
-            'meta' => ['server_time' => now()->toIso8601String()]
+            'meta' => ['server_time' => now()->format('Y-m-d\TH:i:s\Z')]
         ]);
     }
 
@@ -329,7 +329,7 @@ class SyncController extends Controller
 
         return response()->json([
             'data' => $paginatedPages->items(),
-            'meta' => ['server_time' => now()->toIso8601String()],
+            'meta' => ['server_time' => now()->format('Y-m-d\TH:i:s\Z')],
             'links' => $paginatedPages->linkCollection(),
         ]);
     }
@@ -397,7 +397,7 @@ class SyncController extends Controller
 
         return response()->json([
             'data' => $query->get(),
-            'meta' => ['server_time' => now()->toIso8601String()]
+            'meta' => ['server_time' => now()->format('Y-m-d\TH:i:s\Z')]
         ]);
     }
 
