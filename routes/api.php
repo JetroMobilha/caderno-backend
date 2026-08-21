@@ -35,6 +35,9 @@ Route::post('/webhooks/payment-confirmation', [PaymentController::class, 'webhoo
         return response()->json(config('reverb.apps.apps.0.webhooks'));
     });
 
+// 🕒 Check de Saúde e Sincronização de Tempo
+Route::get('/health', [AuthController::class, 'healthCheck']);
+
 // 📡 Webhooks do Reverb (Pusher compatible)
 Route::post('/webhooks/reverb', [App\Http\Controllers\CollaborativeSessionController::class, 'webhook']);
 

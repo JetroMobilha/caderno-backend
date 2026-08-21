@@ -50,7 +50,7 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $request->validate([
-            'login_id' => 'required|string', 
+            'login_id' => 'required|string',
             'password' => 'required|string',
         ]);
 
@@ -161,7 +161,7 @@ class AuthController extends Controller
 
     public function updateProfile(Request $request) {
         $user = $request->user();
-        
+
         $request->validate([
             'name' => 'required|string|max:255',
             'avatar' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
@@ -172,7 +172,7 @@ class AuthController extends Controller
         if ($request->hasFile('avatar')) {
             // Apaga a foto antiga se existir
             if ($user->avatar) { Storage::disk('public')->delete($user->avatar); }
-            
+
             $path = $request->file('avatar')->store('avatars', 'public');
             $user->avatar = $path;
         }
@@ -192,7 +192,7 @@ class AuthController extends Controller
     public function searchUsers(Request $request)
     {
         $search = $request->query('q');
-        
+
         // Só pesquisa se houver pelo menos 3 caracteres
         if (strlen($search) < 3) {
             return response()->json([]);
@@ -204,6 +204,16 @@ class AuthController extends Controller
             ->get(['email', 'name']);
 
         return response()->json($users);
+    }
+
+    // 🕒 ISSUE: Sincronização de Relógio Cliente-Servidor
+    public function healthCheck()
+    {
+        return response()->json([
+            'status' => 'OK',
+            'server_time_ms' => round(microtime(true) * 1000),
+            'server_time_iso' => now()->toIso8601String(),
+        ]);
     }
 
 }
