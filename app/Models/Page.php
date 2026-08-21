@@ -106,6 +106,7 @@ class Page extends Model
         $oldItems = is_array($oldData) ? $oldData : json_decode($oldData, true) ?? [];
         $newItems = is_array($newItems) ? $newItems : json_decode($newItems, true) ?? [];
 
+        // 🚀 FUSÃO ADITIVA: Começamos com o que já existe na BD
         $merged = collect($oldItems)->keyBy('id');
 
         foreach ($newItems as $newItem) {
@@ -125,17 +126,20 @@ class Page extends Model
                 $oldTime = (int)($oldItem['updated_at'] ?? 0);
                 $newTime = (int)($newItem['updated_at'] ?? 0);
 
+                // Se o novo item diz que está apagado, respeitamos se for mais recente
                 if ($newTime >= $oldTime) {
-                    // Preserva o criador original
                     $newItem['creator_id'] = $oldItem['creator_id'] ?? $newItem['creator_id'] ?? (string)$userId;
                     $merged->put($id, $newItem);
                 }
             } else {
-                // Item novo: Atribui quem enviou como criador
+                // Item novo que não existia na BD: Adicionar sempre (Aditividade)
                 if (empty($newItem['creator_id'])) $newItem['creator_id'] = (string)$userId;
                 $merged->put($id, $newItem);
             }
         }
+
+        // 🛡️ PROTEÇÃO FINAL: O resultado contém TUDO o que estava na BD + TUDO o que é novo.
+        // Nada é removido por omissão no payload.
         return $merged->values()->all();
     }
 
