@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema; // 🚀 Corrigir erro "Class Schema not found"
 use App\Models\Subject;
 use App\Models\Notebook;
 use App\Models\User;
