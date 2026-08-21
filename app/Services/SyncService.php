@@ -140,11 +140,24 @@ class SyncService
             }
         } catch (\Exception $e) {}
 
-        return [
-            'client_id' => $localPage->client_id,
-            'server_id' => $localPage->id,
-            'page_number' => $localPage->page_number
-        ];
+        // 🚀 RETORNO AUTORITATIVO INTELIGENTE:
+        // Se o cliente já está atualizado (pelo timestamp), não devolvemos o array pesado de traços.
+        $clientTime = (int)($pageData['updated_at'] ?? 0);
+        $serverTime = $localPage->updated_at_ms ?? 0;
+
+        $result = $localPage->toArray();
+
+        if ($clientTime >= $serverTime) {
+            // Cliente já tem a verdade ou enviou a mais recente.
+            // Removemos os dados pesados para economizar tráfego na resposta.
+            unset($result['stroke_data'], $result['text_data'], $result['image_data']);
+            $result['_sync_status'] = 'already_current';
+        } else {
+            $result['_sync_status'] = 'merged_and_updated';
+        }
+
+        Log::info("🛰️ [Sync] Push Delta para folha {$localPage->client_id}. Status: {$result['_sync_status']}");
+        return $result;
     }
 
     public function broadcastStructureUpdate(Notebook $notebook)
