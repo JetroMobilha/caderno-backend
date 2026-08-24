@@ -53,15 +53,6 @@ class SyncService
 
         if ($userRole === 'viewer') return null;
 
-        if ($localPage) {
-            $incomingTime = (int)($pageData['updated_at'] ?? 0);
-            $localTime = $localPage->updated_at_ms ?? (strtotime($localPage->updated_at) * 1000);
-
-            if ($incomingTime <= $localTime) {
-                return ['client_id' => $localPage->client_id, 'server_id' => $localPage->id, 'status' => 'ignored_old'];
-            }
-        }
-
         // Deleção
         if (!empty($pageData['is_deleted']) && $pageData['is_deleted'] == 1) {
             if ($localPage && !$localPage->trashed()) {
@@ -72,24 +63,33 @@ class SyncService
             return ['client_id' => $pageData['client_id'], 'server_id' => $localPage?->id, 'status' => 'deleted'];
         }
 
-        // 🚀 SEGURANÇA DE SYNC: A coluna 'updated_at' deve ser SEMPRE a hora do servidor
-        // para garantir que o PULL incremental (where updated_at > last_sync) funcione.
-        // O client timestamp (updated_at_ms) é usado apenas para a lógica LWW interna.
+        // 🚀 LÓGICA DE ATUALIZAÇÃO GRANULAR:
+        // Não ignoramos mais o pacote inteiro pelo timestamp da página (ignored_old).
+        // Deixamos o mergeJsonItems decidir traço a traço o que é mais recente.
+        $incomingTime = (int)($pageData['updated_at'] ?? 0);
+        $localTime = $localPage ? ($localPage->updated_at_ms ?? 0) : 0;
+
+        $shouldUpdateMetadata = ($incomingTime > $localTime);
+
         $updateData = [
             'notebook_id'   => $notebook->id,
             'page_number'   => $pageData['page_number'] ?? ($localPage ? $localPage->page_number : 1),
-            'updated_at'    => now(), // 🕒 Forçar hora do servidor
-            'updated_at_ms' => $pageData['updated_at'] ?? null, // 🧬 Preservar tempo do cliente para LWW
-            'is_landscape'  => !empty($pageData['is_landscape']) ? 1 : 0,
-            'is_frozen'     => !empty($pageData['is_frozen']) ? 1 : 0,
-            'paper_size'    => $pageData['paper_size'] ?? 'A4',
-            'line_type'     => $pageData['line_type'] ?? ($localPage ? $localPage->line_type : null),
-            'line_spacing'  => $pageData['line_spacing'] ?? ($localPage ? $localPage->line_spacing : null),
-            'header_data'   => $pageData['header_data'] ?? ($localPage ? $localPage->header_data : ['title' => '']),
-            'footer_data'   => $pageData['footer_data'] ?? ($localPage ? $localPage->footer_data : ['title' => '']),
-            'extracted_text'=> $pageData['extracted_text'] ?? ($localPage ? $localPage->extracted_text : null),
+            'updated_at'    => now(),
+            'updated_at_ms' => max($incomingTime, $localTime), // Preserva o maior tempo
             'deleted_at'    => null,
         ];
+
+        // Só atualiza metadados se o cliente for mais recente que o servidor
+        if ($shouldUpdateMetadata || !$localPage) {
+            $updateData['is_landscape'] = !empty($pageData['is_landscape']) ? 1 : 0;
+            $updateData['is_frozen']    = !empty($pageData['is_frozen']) ? 1 : 0;
+            $updateData['paper_size']   = $pageData['paper_size'] ?? 'A4';
+            $updateData['line_type']    = $pageData['line_type'] ?? ($localPage ? $localPage->line_type : null);
+            $updateData['line_spacing'] = $pageData['line_spacing'] ?? ($localPage ? $localPage->line_spacing : null);
+            $updateData['header_data']  = $pageData['header_data'] ?? ($localPage ? $localPage->header_data : ['title' => '']);
+            $updateData['footer_data']  = $pageData['footer_data'] ?? ($localPage ? $localPage->footer_data : ['title' => '']);
+            $updateData['extracted_text'] = $pageData['extracted_text'] ?? ($localPage ? $localPage->extracted_text : null);
+        }
 
         // Merge de sub-items
         $rawStrokes = Page::mergeJsonItems($localPage->stroke_data ?? [], $this->parseClientArray($pageData['stroke_data'] ?? []), $user->id, $userRole);
