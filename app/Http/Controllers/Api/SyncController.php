@@ -427,6 +427,7 @@ class SyncController extends Controller
     {
         $user = $request->user();
         $recordings = $request->input('recordings', []);
+        $lastSyncedAt = $request->input('last_synced_at'); // 🚀 Novo
         $synced = [];
 
         foreach ($recordings as $data) {
