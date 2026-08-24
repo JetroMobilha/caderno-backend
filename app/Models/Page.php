@@ -9,7 +9,8 @@ use Illuminate\Support\Str;
 
 class Page extends Model
 {
-    use HasFactory,SoftDeletes;
+    use HasFactory, SoftDeletes;
+
     protected $fillable = [
         'notebook_id',
         'page_number',
@@ -94,19 +95,12 @@ class Page extends Model
 
     /**
      * Funde os itens JSON (strokes, text, images) garantindo a integridade dos dados.
-     *
-     * @param mixed $oldData Dados atualmente no banco de dados.
-     * @param mixed $newItems Dados vindos do cliente (App Flutter).
-     * @param mixed $userId ID do utilizador que enviou os dados.
-     * @param string $userRole Papel do utilizador no caderno ('owner', 'editor', 'student').
-     * @return array
      */
     public static function mergeJsonItems($oldData, $newItems, $userId = null, $userRole = 'student')
     {
         $oldItems = is_array($oldData) ? $oldData : json_decode($oldData, true) ?? [];
         $newItems = is_array($newItems) ? $newItems : json_decode($newItems, true) ?? [];
 
-        // 🚀 FUSÃO ADITIVA: Começamos com o que já existe na BD
         $merged = collect($oldItems)->keyBy('id');
 
         foreach ($newItems as $newItem) {
@@ -115,38 +109,84 @@ class Page extends Model
 
             if ($merged->has($id)) {
                 $oldItem = $merged->get($id);
-
-                // 🛡️ Segurança: Aluno não apaga/move o que é do Professor
                 $isOwnerOfItem = ($oldItem['creator_id'] ?? null) == $userId;
                 $canEditEverything = in_array($userRole, ['owner', 'editor']);
 
                 if (!$canEditEverything && !$isOwnerOfItem) continue;
 
-                // 🚀 Lógica LWW (Last-Write-Wins) por Milissegundos
                 $oldTime = (int)($oldItem['updated_at'] ?? 0);
                 $newTime = (int)($newItem['updated_at'] ?? 0);
 
-                // Se o novo item diz que está apagado, respeitamos se for mais recente
                 if ($newTime >= $oldTime) {
                     $newItem['creator_id'] = $oldItem['creator_id'] ?? $newItem['creator_id'] ?? (string)$userId;
                     $merged->put($id, $newItem);
                 }
             } else {
-                // Item novo que não existia na BD: Adicionar sempre (Aditividade)
                 if (empty($newItem['creator_id'])) $newItem['creator_id'] = (string)$userId;
                 $merged->put($id, $newItem);
             }
         }
 
-        // 🛡️ PROTEÇÃO FINAL: O resultado contém TUDO o que estava na BD + TUDO o que é novo.
-        // Nada é removido por omissão no payload.
         return $merged->values()->all();
+    }
+
+    /**
+     * Simplifica os traços da página para reduzir o consumo de banco de dados e largura de banda.
+     * Implementa o algoritmo de Ramer-Douglas-Peucker.
+     */
+    public static function simplifyStrokes($strokes, $epsilon = 0.4)
+    {
+        if (!is_array($strokes)) return $strokes;
+
+        foreach ($strokes as &$stroke) {
+            if (isset($stroke['points']) && is_array($stroke['points']) && count($stroke['points']) > 15) {
+                $stroke['points'] = self::ramerDouglasPeucker($stroke['points'], $epsilon);
+            }
+        }
+        return $strokes;
+    }
+
+    private static function ramerDouglasPeucker($points, $epsilon)
+    {
+        if (count($points) <= 2) return $points;
+
+        $maxDistance = 0;
+        $index = 0;
+        $end = count($points) - 1;
+
+        for ($i = 1; $i < $end; $i++) {
+            $distance = self::perpendicularDistance($points[$i], $points[0], $points[$end]);
+            if ($distance > $maxDistance) {
+                $index = $i;
+                $maxDistance = $distance;
+            }
+        }
+
+        if ($maxDistance > $epsilon) {
+            $recursiveResult1 = self::ramerDouglasPeucker(array_slice($points, 0, $index + 1), $epsilon);
+            $recursiveResult2 = self::ramerDouglasPeucker(array_slice($points, $index), $epsilon);
+
+            return array_merge(array_slice($recursiveResult1, 0, -1), $recursiveResult2);
+        } else {
+            return [$points[0], $points[$end]];
+        }
+    }
+
+    private static function perpendicularDistance($p, $start, $end)
+    {
+        $x = $p['dx']; $y = $p['dy'];
+        $x1 = $start['dx']; $y1 = $start['dy'];
+        $x2 = $end['dx']; $y2 = $end['dy'];
+
+        $numerator = abs(($y2 - $y1) * $x - ($x2 - $x1) * $y + $x2 * $y1 - $y2 * $x1);
+        $denominator = sqrt(pow($y2 - $y1, 2) + pow($x2 - $x1, 2));
+
+        return ($denominator == 0) ? sqrt(pow($x - $x1, 2) + pow($y - $y1, 2)) : ($numerator / $denominator);
     }
 
     public function buildOcrTextEntry(string $recognizedText, array $result = []): array
     {
         $context = $this->buildOcrContext();
-
         $entry = [
             'id' => (string) Str::uuid(),
             'type' => 'ocr',
@@ -160,7 +200,6 @@ class Page extends Model
             'page_id' => $context['page']['id'] ?? null,
             'page_number' => $context['page']['number'] ?? null,
         ];
-
         return array_filter($entry, static fn ($value) => $value !== null && $value !== '');
     }
 
@@ -170,25 +209,14 @@ class Page extends Model
         $notebook = $this->notebook;
 
         if ($notebook) {
-            $context['notebook'] = [
-                'id' => $notebook->id,
-                'title' => $notebook->title,
-            ];
-
+            $context['notebook'] = ['id' => $notebook->id, 'title' => $notebook->title];
             $subject = $notebook->subject;
             if ($subject) {
-                $context['subject'] = [
-                    'id' => $subject->id,
-                    'name' => $subject->name,
-                ];
+                $context['subject'] = ['id' => $subject->id, 'name' => $subject->name];
             }
         }
 
-        $context['page'] = [
-            'id' => $this->id,
-            'number' => $this->page_number,
-        ];
-
+        $context['page'] = ['id' => $this->id, 'number' => $this->page_number];
         return array_filter($context, static fn ($value) => $value !== null && $value !== '');
     }
 }

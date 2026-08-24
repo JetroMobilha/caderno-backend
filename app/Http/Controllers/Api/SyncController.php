@@ -31,12 +31,12 @@ class SyncController extends Controller
     {
         $user = $request->user();
         $clientSubjects = $request->input('subjects', []);
+        $lastSyncedAt = $request->input('last_synced_at'); // 🚀 Novo
         $syncedSubjects = [];
 
         foreach ($clientSubjects as $data) {
             $incomingTime = (int)($data['updated_at'] ?? 0);
 
-            // 🎯 BUSCA HÍBRIDA: Tenta ID do Servidor primeiro, depois o UUID
             $subject = null;
             if (!empty($data['server_id'])) {
                 $subject = Subject::withTrashed()->where('user_id', $user->id)->find($data['server_id']);
@@ -45,7 +45,6 @@ class SyncController extends Controller
                 $subject = Subject::withTrashed()->where('user_id', $user->id)->where('client_id', $data['client_id'])->first();
             }
 
-            // 🗑️ Deleção LWW
             if (!empty($data['is_deleted']) && $data['is_deleted'] == 1) {
                 if ($subject && !$subject->trashed() && $incomingTime > ($subject->updated_at_ms ?? 0)) {
                     $subject->update(['updated_at_ms' => $incomingTime]);
@@ -54,9 +53,7 @@ class SyncController extends Controller
                 continue;
             }
 
-            // Se encontrou, atualiza. Se não, cria.
             if ($subject) {
-                // 🚀 LWW
                 if ($incomingTime >= ($subject->updated_at_ms ?? 0)) {
                     if ($subject->trashed()) $subject->restore();
                     $subject->update([
@@ -77,11 +74,35 @@ class SyncController extends Controller
                     'updated_at_ms' => $incomingTime,
                 ]);
             }
-
-            $syncedSubjects[] = ['client_id' => $data['client_id'], 'server_id' => $subject->id];
+            $syncedSubjects[] = $subject->toArray();
         }
 
-        return response()->json(['message' => 'OK', 'synced_subjects' => $syncedSubjects]);
+        // 🚀 PULL INTEGRADO: Buscar o que mudou no servidor desde o último sync do cliente
+        $serverUpdates = [];
+        $hasMore = false;
+        $totalPending = 0;
+
+        if ($lastSyncedAt) {
+            $query = Subject::withTrashed()
+                ->where('user_id', $user->id)
+                ->where('updated_at', '>', $lastSyncedAt);
+
+            $totalPending = $query->count();
+            $serverUpdates = $query->limit(20)->get();
+            $hasMore = $totalPending > 20;
+        }
+
+        return response()->json([
+            'message' => 'OK',
+            'synced_subjects' => $syncedSubjects,
+            'server_updates' => $serverUpdates,
+            'has_more' => $hasMore, // 🚀 Hint para o Flutter ativar pull em lote
+            'total_pending' => $totalPending,
+            'meta' => [
+                'server_time' => now()->format('Y-m-d\TH:i:s\Z'),
+                'server_time_ms' => (int)(microtime(true) * 1000)
+            ]
+        ]);
     }
 
     public function pull(Request $request)
@@ -111,12 +132,12 @@ class SyncController extends Controller
     public function pushNotebooks(Request $request)
     {
         $user = $request->user();
+        $lastSyncedAt = $request->input('last_synced_at'); // 🚀 Novo
         $syncedNotebooks = [];
 
         foreach ($request->input('notebooks', []) as $data) {
             $incomingTime = (int)($data['updated_at'] ?? 0);
 
-            // 🎯 BUSCA HÍBRIDA
             $notebook = null;
             if (!empty($data['server_id'])) {
                 $notebook = Notebook::withTrashed()->find($data['server_id']);
@@ -125,7 +146,6 @@ class SyncController extends Controller
                 $notebook = Notebook::withTrashed()->where('client_id', $data['client_id'])->first();
             }
 
-            // 🛡️ VALIDAÇÃO DE ROLE: Apenas dono ou editor pode dar push no caderno (metadados)
             if ($notebook) {
                 $userRole = 'student';
                 if ($notebook->subject && $notebook->subject->user_id === $user->id) {
@@ -134,24 +154,15 @@ class SyncController extends Controller
                     $pivot = DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->first();
                     $userRole = $pivot ? $pivot->role : 'viewer';
                 }
-                if ($userRole === 'viewer' || $userRole === 'student') {
-                    Log::warning("⚠️ [Sync] Tentativa de push metadados do caderno {$notebook->id} por utilizador {$user->id} ($userRole) negada.");
-                    continue;
-                }
+                if ($userRole === 'viewer' || $userRole === 'student') continue;
             }
 
-            // 🗑️ Deleção LWW
             if (!empty($data['is_deleted']) && $data['is_deleted'] == 1) {
                 if ($notebook && !$notebook->trashed()) {
                     if ($notebook->subject && $notebook->subject->user_id == $user->id) {
                         if ($incomingTime > ($notebook->updated_at_ms ?? 0)) {
                             $notebook->update(['updated_at_ms' => $incomingTime]);
-
-                            // 🚀 Notificar colaboradores
-                            try {
-                                NotebookDeleted::dispatch($notebook);
-                            } catch (\Exception $e) {}
-
+                            try { NotebookDeleted::dispatch($notebook); } catch (\Exception $e) {}
                             $notebook->delete();
                         }
                     }
@@ -163,7 +174,7 @@ class SyncController extends Controller
                 'client_id'  => $data['client_id'],
                 'subject_id' => $data['subject_id'],
                 'title'      => $data['title'] ?? '',
-                'color'      => $data['color'] ?? null, // 🚀 Persistir cor do caderno
+                'color'      => $data['color'] ?? null,
                 'template_type' => $data['template_type'] ?? 'study',
                 'collaboration_mode' => $data['collaboration_mode'] ?? 'study_group',
                 'line_type'  => $data['line_type'] ?? 'ruled',
@@ -172,7 +183,6 @@ class SyncController extends Controller
             ];
 
             if ($notebook) {
-                // 🚀 LWW
                 if ($incomingTime >= ($notebook->updated_at_ms ?? 0)) {
                     if ($notebook->trashed()) $notebook->restore();
                     $notebook->update($updateData);
@@ -180,11 +190,45 @@ class SyncController extends Controller
             } else {
                 $notebook = Notebook::create($updateData);
             }
-
-            $syncedNotebooks[] = ['client_id' => $data['client_id'], 'server_id' => $notebook->id];
+            $syncedNotebooks[] = $notebook->toArray();
         }
 
-        return response()->json(['message' => 'OK', 'synced_notebooks' => $syncedNotebooks]);
+        // 🚀 PULL INTEGRADO: Notebooks próprios e partilhados
+        $serverUpdates = [];
+        $hasMore = false;
+        $totalPending = 0;
+
+        if ($lastSyncedAt) {
+            $query = Notebook::withTrashed()->where(function ($q) use ($user) {
+                $q->whereHas('subject', fn($sub) => $sub->where('user_id', $user->id))
+                  ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
+            })->where('updated_at', '>', $lastSyncedAt);
+
+            $totalPending = $query->count();
+            $serverUpdates = $query->limit(20)->get();
+            $hasMore = $totalPending > 20;
+
+            // Injetar roles nos updates para o Flutter
+            $serverUpdates = $serverUpdates->map(function ($nb) use ($user) {
+                $role = ($nb->subject && $nb->subject->user_id === $user->id) ? 'owner' :
+                        (DB::table('notebook_user')->where('notebook_id', $nb->id)->where('user_id', $user->id)->value('role') ?? 'viewer');
+                $data = $nb->toArray();
+                $data['role'] = $role;
+                return $data;
+            });
+        }
+
+        return response()->json([
+            'message' => 'OK',
+            'synced_notebooks' => $syncedNotebooks,
+            'server_updates' => $serverUpdates,
+            'has_more' => $hasMore,
+            'total_pending' => $totalPending,
+            'meta' => [
+                'server_time' => now()->format('Y-m-d\TH:i:s\Z'),
+                'server_time_ms' => (int)(microtime(true) * 1000)
+            ]
+        ]);
     }
 
 
@@ -268,6 +312,7 @@ class SyncController extends Controller
     {
         $user = $request->user();
         $clientPages = $request->input('pages', []);
+        $lastSyncedAt = $request->input('last_synced_at'); // 🚀
         $syncedPages = [];
 
         DB::transaction(function () use ($user, $clientPages, &$syncedPages) {
@@ -279,7 +324,39 @@ class SyncController extends Controller
             }
         });
 
-        return response()->json(['message' => 'OK', 'synced_pages' => $syncedPages]);
+        // 🚀 PULL INTEGRADO (Delta de outras fontes)
+        $serverUpdates = [];
+        $hasMore = false;
+        $totalPending = 0;
+
+        if ($lastSyncedAt) {
+            $pushedClientIds = collect($clientPages)->pluck('client_id')->filter()->toArray();
+
+            $query = Page::withTrashed()->whereHas('notebook', function ($q) use ($user) {
+                $q->where(function($inner) use ($user) {
+                    $inner->whereHas('subject', fn($s) => $s->where('user_id', $user->id))
+                          ->orWhereHas('sharedUsers', fn($s) => $s->where('user_id', $user->id));
+                });
+            })
+            ->where('updated_at', '>', $lastSyncedAt)
+            ->whereNotIn('client_id', $pushedClientIds); // 🚀 Excluir as que acabamos de receber
+
+            $totalPending = $query->count();
+            $serverUpdates = $query->limit(10)->get();
+            $hasMore = $totalPending > 10;
+        }
+
+        return response()->json([
+            'message' => 'OK',
+            'synced_pages' => $syncedPages,
+            'server_updates' => $serverUpdates,
+            'has_more' => $hasMore,
+            'total_pending' => $totalPending,
+            'meta' => [
+                'server_time' => now()->format('Y-m-d\TH:i:s\Z'),
+                'server_time_ms' => (int)(microtime(true) * 1000)
+            ]
+        ]);
     }
 
 
@@ -381,10 +458,39 @@ class SyncController extends Controller
                     ]);
                 }
             }
-            $synced[] = ['client_id' => $data['client_id'], 'server_id' => $recording->id];
+            $synced[] = $recording->toArray();
         }
 
-        return response()->json(['message' => 'OK', 'synced_recordings' => $synced]);
+        // 🚀 PULL INTEGRADO: Buscar deltas externos
+        $serverUpdates = [];
+        $hasMore = false;
+        $totalPending = 0;
+
+        if ($lastSyncedAt) {
+            $pushedClientIds = collect($recordings)->pluck('client_id')->filter()->toArray();
+            $query = LessonRecording::whereHas('notebook', function ($q) use ($user) {
+                $q->whereHas('subject', fn($sub) => $sub->where('user_id', $user->id))
+                  ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
+            })
+            ->where('updated_at', '>', $lastSyncedAt)
+            ->whereNotIn('client_id', $pushedClientIds);
+
+            $totalPending = $query->count();
+            $serverUpdates = $query->limit(20)->get();
+            $hasMore = $totalPending > 20;
+        }
+
+        return response()->json([
+            'message' => 'OK',
+            'synced_recordings' => $synced,
+            'server_updates' => $serverUpdates,
+            'has_more' => $hasMore,
+            'total_pending' => $totalPending,
+            'meta' => [
+                'server_time' => now()->format('Y-m-d\TH:i:s\Z'),
+                'server_time_ms' => (int)(microtime(true) * 1000)
+            ]
+        ]);
     }
 
     public function pullRecordings(Request $request)

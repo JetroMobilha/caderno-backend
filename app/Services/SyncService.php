@@ -92,7 +92,11 @@ class SyncService
         ];
 
         // Merge de sub-items
-        $updateData['stroke_data'] = Page::mergeJsonItems($localPage->stroke_data ?? [], $this->parseClientArray($pageData['stroke_data'] ?? []), $user->id, $userRole);
+        $rawStrokes = Page::mergeJsonItems($localPage->stroke_data ?? [], $this->parseClientArray($pageData['stroke_data'] ?? []), $user->id, $userRole);
+
+        // 🚀 OTIMIZAÇÃO NO SERVIDOR: Simplificar traços após o merge para economizar largura de banda para todos
+        $updateData['stroke_data'] = Page::simplifyStrokes($rawStrokes);
+
         $updateData['text_data']   = Page::mergeJsonItems($localPage->text_data ?? [], $this->parseClientArray($pageData['text_data'] ?? []), $user->id, $userRole);
 
         // Imagens (Lidar com Base64 se houver)
