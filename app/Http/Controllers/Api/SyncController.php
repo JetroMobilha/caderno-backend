@@ -79,7 +79,10 @@ class SyncController extends Controller
             'server_updates' => $serverUpdates,
             'has_more' => $totalPending > 50,
             'total_pending' => $totalPending,
-            'meta' => ['server_time_ms' => (int)(microtime(true) * 1000)]
+            'meta' => [
+                'server_time' => now()->toIso8601String(),
+                'server_time_ms' => (int)(microtime(true) * 1000)
+            ]
         ]);
     }
 
@@ -90,7 +93,14 @@ class SyncController extends Controller
         $query = Subject::withTrashed()->where('user_id', $user->id);
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
         $paginated = $query->paginate(50);
-        return response()->json(['data' => $paginated->items(), 'links' => $paginated->linkCollection()]);
+        return response()->json([
+            'data' => $paginated->items(),
+            'links' => $paginated->linkCollection(),
+            'meta' => [
+                'server_time' => now()->toIso8601String(),
+                'server_time_ms' => (int)(microtime(true) * 1000)
+            ]
+        ]);
     }
 
     // =========================================================================
@@ -161,7 +171,10 @@ class SyncController extends Controller
             'server_updates' => $serverUpdates,
             'has_more' => $totalPending > 50,
             'total_pending' => $totalPending,
-            'meta' => ['server_time_ms' => (int)(microtime(true) * 1000)]
+            'meta' => [
+                'server_time' => now()->toIso8601String(),
+                'server_time_ms' => (int)(microtime(true) * 1000)
+            ]
         ]);
     }
 
@@ -179,7 +192,14 @@ class SyncController extends Controller
             $nb->role = ($nb->subject && $nb->subject->user_id === $user->id) ? 'owner' : 'viewer';
             return $nb;
         });
-        return response()->json(['data' => $items, 'links' => $paginated->linkCollection()]);
+        return response()->json([
+            'data' => $items,
+            'links' => $paginated->linkCollection(),
+            'meta' => [
+                'server_time' => now()->toIso8601String(),
+                'server_time_ms' => (int)(microtime(true) * 1000)
+            ]
+        ]);
     }
 
     // =========================================================================
@@ -196,20 +216,38 @@ class SyncController extends Controller
                 if ($res) $syncedPages[] = $res;
             }
         });
-        return response()->json(['message' => 'OK', 'synced_pages' => $syncedPages]);
+        return response()->json([
+            'message' => 'OK',
+            'synced_pages' => $syncedPages,
+            'meta' => [
+                'server_time' => now()->toIso8601String(),
+                'server_time_ms' => (int)(microtime(true) * 1000)
+            ]
+        ]);
     }
 
     public function pullPages(Request $request)
     {
         $user = $request->user();
         $notebookId = $request->query('notebook_id');
+        $lastSyncedAt = $request->query('last_synced_at');
+
         $query = Page::withTrashed()->whereHas('notebook', function ($q) use ($user) {
             $q->whereHas('subject', fn($s) => $s->where('user_id', $user->id))
               ->orWhereHas('sharedUsers', fn($s) => $s->where('user_id', $user->id));
         });
         if ($notebookId) $query->where('notebook_id', $notebookId);
+        if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
+
         $paginated = $query->orderBy('page_number')->paginate(50);
-        return response()->json(['data' => $paginated->items(), 'links' => $paginated->linkCollection()]);
+        return response()->json([
+            'data' => $paginated->items(),
+            'links' => $paginated->linkCollection(),
+            'meta' => [
+                'server_time' => now()->toIso8601String(),
+                'server_time_ms' => (int)(microtime(true) * 1000)
+            ]
+        ]);
     }
 
     // =========================================================================
