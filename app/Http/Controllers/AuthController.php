@@ -165,9 +165,19 @@ class AuthController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'avatar' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
+            'bio' => 'nullable|string|max:1000',
+            'institution' => 'nullable|string|max:255',
+            'preferred_color' => 'nullable|string|max:10',
+            'preferred_font' => 'nullable|string|max:50',
+            'specialties' => 'nullable|string|max:1000',
         ]);
 
         $user->name = $request->name;
+        if ($request->has('bio')) $user->bio = $request->bio;
+        if ($request->has('institution')) $user->institution = $request->institution;
+        if ($request->has('preferred_color')) $user->preferred_color = $request->preferred_color;
+        if ($request->has('preferred_font')) $user->preferred_font = $request->preferred_font;
+        if ($request->has('specialties')) $user->specialties = $request->specialties;
 
         if ($request->hasFile('avatar')) {
             // Apaga a foto antiga se existir
