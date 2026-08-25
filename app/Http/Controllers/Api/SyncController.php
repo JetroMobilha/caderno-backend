@@ -82,15 +82,14 @@ class SyncController extends Controller
         $hasMore = false;
         $totalPending = 0;
 
+        $query = Subject::withTrashed()->where('user_id', $user->id);
         if ($lastSyncedAt) {
-            $query = Subject::withTrashed()
-                ->where('user_id', $user->id)
-                ->where('updated_at', '>', $lastSyncedAt);
-
-            $totalPending = $query->count();
-            $serverUpdates = $query->limit(20)->get();
-            $hasMore = $totalPending > 20;
+            $query->where('updated_at', '>', $lastSyncedAt);
         }
+
+        $totalPending = $query->count();
+        $serverUpdates = $query->limit(20)->get();
+        $hasMore = $totalPending > 20;
 
         return response()->json([
             'message' => 'OK',
@@ -198,18 +197,21 @@ class SyncController extends Controller
         $hasMore = false;
         $totalPending = 0;
 
+        $query = Notebook::withTrashed()->where(function ($q) use ($user) {
+            $q->whereHas('subject', fn($sub) => $sub->where('user_id', $user->id))
+              ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
+        });
+
         if ($lastSyncedAt) {
-            $query = Notebook::withTrashed()->where(function ($q) use ($user) {
-                $q->whereHas('subject', fn($sub) => $sub->where('user_id', $user->id))
-                  ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
-            })->where('updated_at', '>', $lastSyncedAt);
+            $query->where('updated_at', '>', $lastSyncedAt);
+        }
 
-            $totalPending = $query->count();
-            $serverUpdates = $query->limit(20)->get();
-            $hasMore = $totalPending > 20;
+        $totalPending = $query->count();
+        $serverUpdates = $query->limit(20)->get();
+        $hasMore = $totalPending > 20;
 
-            // Injetar roles nos updates para o Flutter
-            $serverUpdates = $serverUpdates->map(function ($nb) use ($user) {
+        // Injetar roles nos updates para o Flutter
+        $serverUpdates = $serverUpdates->map(function ($nb) use ($user) {
                 $role = ($nb->subject && $nb->subject->user_id === $user->id) ? 'owner' :
                         (DB::table('notebook_user')->where('notebook_id', $nb->id)->where('user_id', $user->id)->value('role') ?? 'viewer');
                 $data = $nb->toArray();
@@ -329,22 +331,26 @@ class SyncController extends Controller
         $hasMore = false;
         $totalPending = 0;
 
+        $pushedClientIds = collect($clientPages)->pluck('client_id')->filter()->toArray();
+
+        $query = Page::withTrashed()->whereHas('notebook', function ($q) use ($user) {
+            $q->where(function($inner) use ($user) {
+                $inner->whereHas('subject', fn($s) => $s->where('user_id', $user->id))
+                      ->orWhereHas('sharedUsers', fn($s) => $s->where('user_id', $user->id));
+            });
+        });
+
         if ($lastSyncedAt) {
-            $pushedClientIds = collect($clientPages)->pluck('client_id')->filter()->toArray();
-
-            $query = Page::withTrashed()->whereHas('notebook', function ($q) use ($user) {
-                $q->where(function($inner) use ($user) {
-                    $inner->whereHas('subject', fn($s) => $s->where('user_id', $user->id))
-                          ->orWhereHas('sharedUsers', fn($s) => $s->where('user_id', $user->id));
-                });
-            })
-            ->where('updated_at', '>', $lastSyncedAt)
-            ->whereNotIn('client_id', $pushedClientIds); // 🚀 Excluir as que acabamos de receber
-
-            $totalPending = $query->count();
-            $serverUpdates = $query->limit(10)->get();
-            $hasMore = $totalPending > 10;
+            $query->where('updated_at', '>', $lastSyncedAt);
         }
+
+        if (!empty($pushedClientIds)) {
+            $query->whereNotIn('client_id', $pushedClientIds);
+        }
+
+        $totalPending = $query->count();
+        $serverUpdates = $query->limit(10)->get();
+        $hasMore = $totalPending > 10;
 
         return response()->json([
             'message' => 'OK',
