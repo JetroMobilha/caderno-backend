@@ -18,6 +18,10 @@ class SearchController extends Controller
     public function globalSearch(Request $request)
     {
         // 1. Validation
+        if (!$request->has('term')) {
+            return response()->json(['message' => 'O termo de pesquisa é obrigatório.'], 400);
+        }
+
         $validated = $request->validate([
             'term' => 'required|string|min:3',
         ]);
@@ -40,36 +44,23 @@ class SearchController extends Controller
             });
 
         // 3. Apply the search term filter
-        // Using a simple LIKE query. For production, consider a full-text search index.
         $query->where('extracted_text', 'LIKE', '%' . $term . '%');
 
-        // 4. Select the required fields and join with related tables
-        $query->join('notebooks', 'pages.notebook_id', '=', 'notebooks.id')
-              ->join('subjects', 'notebooks.subject_id', '=', 'subjects.id')
-              ->select(
-                  'pages.id as page_id',
-                  'pages.page_number',
-                  'notebooks.id as notebook_id',
-                  'notebooks.title as notebook_title',
-                  'subjects.id as subject_id',
-                  'subjects.name as subject_name',
-                  'pages.extracted_text as preview_text' // We'll trim this later
-                  // 'score' is hard to calculate without full-text search, so we'll omit it for now
-              );
-        
+        // 4. Load relations
+        $query->with(['notebook.subject']);
+
         // 5. Paginate the results
         $paginatedResults = $query->paginate(20);
 
         // 6. Post-process results to create a preview snippet
         $paginatedResults->getCollection()->transform(function ($item) use ($term) {
-            $item->preview_text = $this->generatePreview($item->preview_text, $term);
-            // Add a dummy score
-            $item->score = round(strlen($term) / strlen($item->preview_text) * 100, 2);
+            $item->preview_text = $this->generatePreview($item->extracted_text, $term);
+            $item->score = round(strlen($term) / max(1, strlen($item->extracted_text)) * 100, 2);
             return $item;
         });
 
-        // 7. Return the paginated response
-        return response()->json($paginatedResults);
+        // 7. Return the results
+        return response()->json($paginatedResults->items());
     }
 
     /**

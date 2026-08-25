@@ -23,6 +23,7 @@ class NotebookSyncSpeedTest extends TestCase
 
         // Dados simulados de um traço simples
         $payload = [
+            'client_id' => 'bench-id',
             'page_number' => 1,
             'stroke_data' => [['color' => '#000', 'thickness' => 2, 'points' => [['x' => 1, 'y' => 2]]]]
         ];
@@ -37,7 +38,7 @@ class NotebookSyncSpeedTest extends TestCase
         }
 
         $endTime = microtime(true);
-        
+
         // 3. Calcular as métricas de tempo
         $totalTimeInSeconds = $endTime - $startTime;
         $averageTimePerRequestInMs = ($totalTimeInSeconds / $totalRequests) * 1000;
@@ -45,7 +46,7 @@ class NotebookSyncSpeedTest extends TestCase
         // Imprimir o resultado no terminal para nós vermos a velocidade real
         fwrite(STDERR, "\n\n⏱️  BENCHMARK DE SINCRO: Tempo Médio por Traço: " . round($averageTimePerRequestInMs, 2) . "ms\n");
 
-        // 4. A ASSERÇÃO DE VELOCIDADE: 
+        // 4. A ASSERÇÃO DE VELOCIDADE:
         // Garantir que a média local é inferior a 30ms. Se passar disto, o teste falha
         // porque o código estaria demasiado lento para o mercado angolano!
         $this->assertTrue($averageTimePerRequestInMs < 30, "A sincronização está demasiado lenta: {$averageTimePerRequestInMs}ms");

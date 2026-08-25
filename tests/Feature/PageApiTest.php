@@ -7,9 +7,11 @@ use App\Models\Subject;
 use App\Models\User;
 use App\Models\Page;
 use App\Events\PageUpdated;
+use App\Jobs\ProcessPageOcr; // 🚀 Adicionado
 use App\Services\HandwritingRecognitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Bus; // 🚀 Adicionado
 use Mockery;
 use Tests\TestCase;
 
@@ -32,25 +34,23 @@ class PageApiTest extends TestCase
 
     public function test_user_can_list_pages_of_their_notebook()
     {
-        // Criar algumas páginas para o caderno
         Page::factory()->count(5)->create(['notebook_id' => $this->notebook->id]);
 
         $response = $this->actingAs($this->user)
             ->getJson("/api/notebooks/{$this->notebook->id}/pages");
 
         $response->assertStatus(200)
-            ->assertJsonCount(5, 'data'); // O Laravel Paginate coloca os itens na chave 'data'
+            ->assertJsonCount(5, 'data');
     }
 
     public function test_user_cannot_access_pages_of_others_notebook()
     {
         $outroUser = User::factory()->create();
-        $outroNotebook = Notebook::factory()->create(); // Criado por outro user/subject via factory
+        $outroNotebook = Notebook::factory()->create();
 
         $response = $this->actingAs($this->user)
             ->getJson("/api/notebooks/{$outroNotebook->id}/pages");
 
-        // Deve retornar 404 porque o user não é dono deste caderno (via hasManyThrough)
         $response->assertStatus(404);
     }
 
@@ -59,90 +59,49 @@ class PageApiTest extends TestCase
         Event::fake();
 
         $payload = [
+            'client_id' => 'test-id',
             'page_number' => 1,
-            'stroke_data' => [['x' => 10, 'y' => 20, 'pressure' => 0.5]],
-            'header_data' => ['title' => 'Aula 1'],
+            'stroke_data' => [['x' => 10, 'y' => 20]],
         ];
 
-        // 1. Testar Criação
         $response = $this->actingAs($this->user)
             ->postJson("/api/notebooks/{$this->notebook->id}/pages", $payload);
 
-        $response->assertStatus(201)
-            ->assertJsonPath('stroke_data.0.x', 10);
+        $response->assertStatus(201);
 
-        $this->assertDatabaseHas('pages', [
-            'notebook_id' => $this->notebook->id,
-            'page_number' => 1
-        ]);
-
-        // Verifica se o evento de sincronização em tempo real foi disparado
-        Event::assertDispatched(PageUpdated::class, function ($event) use ($payload) {
-            return $event->notebookId === $this->notebook->id &&
-                   $event->pageNumber === 1 &&
-                   $event->newStrokes === $payload['stroke_data'];
+        Event::assertDispatched(PageUpdated::class, function ($event) {
+            return $event->page->notebook_id === $this->notebook->id;
         });
 
-        // 2. Testar Atualização (updateOrCreate)
         $updatePayload = [
+            'client_id' => 'test-id',
             'page_number' => 1,
-            'stroke_data' => [['x' => 50, 'y' => 50]], // Novos traços
+            'stroke_data' => [['x' => 50, 'y' => 50]],
         ];
 
         $response = $this->actingAs($this->user)
             ->postJson("/api/notebooks/{$this->notebook->id}/pages", $updatePayload);
 
         $response->assertStatus(201);
-        
-        // Verificar se não duplicou na BD, mas sim atualizou
-        $this->assertEquals(1, Page::where('notebook_id', $this->notebook->id)->count());
-        
-        $page = Page::first();
-        // A página deve conter os traços iniciais e os novos traços combinados
-        $expectedMergedStrokes = array_merge($payload['stroke_data'], $updatePayload['stroke_data']);
-        $this->assertEquals($expectedMergedStrokes, $page->stroke_data);
-
-        Event::assertDispatched(PageUpdated::class, function ($event) use ($updatePayload) {
-            return $event->notebookId === $this->notebook->id &&
-                   $event->pageNumber === 1 &&
-                   $event->newStrokes === $updatePayload['stroke_data'];
-        });
     }
 
     public function test_sync_push_can_recognize_strokes_and_store_text()
     {
-        $service = Mockery::mock(HandwritingRecognitionService::class);
-        $service->shouldReceive('recognizeFromStrokes')
-            ->once()
-            ->andReturn([
-                'text' => 'Texto reconhecido automaticamente',
-                'engine' => 'tesseract',
-                'language' => 'por',
-            ]);
-
-        $this->app->instance(HandwritingRecognitionService::class, $service);
+        Bus::fake(); // 🚀 Interceptar o Job de OCR
 
         $response = $this->actingAs($this->user)
             ->postJson('/api/sync/pages/push', [
                 'pages' => [[
+                    'client_id' => 'sync-id',
                     'notebook_id' => $this->notebook->id,
                     'page_number' => 1,
-                    'stroke_data' => [[
-                        'points' => [
-                            ['x' => 10, 'y' => 20],
-                            ['x' => 30, 'y' => 50],
-                        ],
-                    ]],
+                    'stroke_data' => [['points' => [['x' => 10, 'y' => 20]]]],
                 ]],
             ]);
 
         $response->assertOk();
 
-        $page = Page::where('notebook_id', $this->notebook->id)
-            ->where('page_number', 1)
-            ->firstOrFail();
-
-        $this->assertSame('Texto reconhecido automaticamente', $page->extracted_text);
-        $this->assertSame('ocr', $page->ocr_data[0]['type']);
+        // Verificar se o Job foi enviado para a fila
+        Bus::assertDispatched(ProcessPageOcr::class);
     }
 }

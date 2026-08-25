@@ -1,0 +1,12 @@
+- [x] Update `phpunit.xml` to set `BROADCAST_CONNECTION=null` and `BROADCAST_DRIVER=null`
+- [x] Implement `exportPdf` in `NotebookController.php`
+- [x] Create PDF blade view at `resources/views/pdf/notebook.blade.php`
+- [x] Fix `SearchController.php` validation status code and return direct list for tests
+- [x] Update `PageApiTest.php` with `client_id` in payloads and fix event property access
+- [x] Update `NotebookSyncSpeedTest.php` with `client_id` in payloads
+- [x] Update `GlobalSearchTest.php` to match new response structure
+- [x] Fix `HandwritingSynthesisController.php` route and remove redundant controller
+- [x] Update `HandwritingSynthesisApiTest.php` with authentication and correct validation
+- [x] Refactor `HandwritingRecognitionApiTest.php` to use proper factories and `RefreshDatabase`
+- [x] Update `BroadcastingAuthTest.php` to handle `null` driver behavior correctly
+- [x] Run all tests and verify 100% success (73 tests passed)

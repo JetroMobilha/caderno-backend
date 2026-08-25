@@ -12,6 +12,7 @@ use App\Events\SyncRequested;
 use App\Events\NotebookDeleted;
 use App\Models\CollaborativeSession;
 use App\Models\CollaborativeSessionPage;
+use Spatie\LaravelPdf\Facades\Pdf as SpatiePdf; // 🚀 Adicionado
 use Spatie\PdfToImage\Pdf;
 use Illuminate\Support\Facades\Storage;
 use App\Models\Page;
@@ -137,7 +138,7 @@ class NotebookController extends Controller
 
         $notebook->delete();
         \App\Events\SyncRequested::dispatch($request->user()->id);
-        return response()->json(['message' => 'Apagado.']);
+        return response()->json(['message' => 'Caderno movido para a lixeira.']);
     }
 
     // =========================================================================
@@ -364,5 +365,35 @@ class NotebookController extends Controller
 
     public function getLessonRecordings(Notebook $notebook) {
         return response()->json($notebook->lessonRecordings);
+    }
+
+    // =========================================================================
+    // 🖨️ EXPORTAR CADERNO PARA PDF
+    // =========================================================================
+    public function exportPdf(Notebook $notebook)
+    {
+        $user = auth()->user();
+
+        // 🛡️ Segurança: Verifica se o utilizador tem acesso ao caderno
+        $hasAccess = $notebook->subject && $notebook->subject->user_id === $user->id;
+        if (!$hasAccess) {
+            $hasAccess = DB::table('notebook_user')
+                ->where('notebook_id', $notebook->id)
+                ->where('user_id', $user->id)
+                ->exists();
+        }
+
+        if (!$hasAccess) {
+            return response()->json(['message' => 'Não tens permissão para exportar este caderno.'], 404);
+        }
+
+        $notebook->load(['pages' => function($q) {
+            $q->orderBy('page_number');
+        }]);
+
+        // 🚀 OTIMIZAÇÃO: Usar Spatie Laravel PDF para gerar o documento
+        return SpatiePdf::view('pdf.notebook', ['notebook' => $notebook])
+            ->name($notebook->title . '.pdf')
+            ->download();
     }
 }
