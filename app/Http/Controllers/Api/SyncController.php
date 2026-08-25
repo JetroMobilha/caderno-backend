@@ -218,7 +218,6 @@ class SyncController extends Controller
                 $data['role'] = $role;
                 return $data;
             });
-        }
 
         return response()->json([
             'message' => 'OK',
