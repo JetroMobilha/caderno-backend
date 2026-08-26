@@ -41,6 +41,7 @@ class SyncController extends Controller
                     $subject->update(['updated_at_ms' => $incomingTime]);
                     $subject->delete();
                 }
+                $syncedSubjects[] = $subject ? $subject->toArray() : ['client_id' => $data['client_id'], 'is_deleted' => 1];
                 continue;
             }
 
