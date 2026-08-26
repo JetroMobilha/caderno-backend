@@ -62,7 +62,7 @@ class SubjectController extends Controller
         $subject = Subject::where('user_id', $request->user()->id)->find($id);
 
         if (!$subject) {
-            return response()->json(['message' => 'Disciplina não encontrada ou sem permissão de acesso.'], 404);
+            return response()->json(['message' => 'Pasta não encontrada ou sem permissão de acesso.'], 404);
         }
 
         // Atualiza os dados que vieram no Request
@@ -86,7 +86,7 @@ class SubjectController extends Controller
         $subject = Subject::where('user_id', auth()->id())->find($id);
 
         if (!$subject) {
-            return response()->json(['message' => 'Disciplina não encontrada.'], 404);
+            return response()->json(['message' => 'Pasta não encontrada.'], 404);
         }
 
         // 🚀 IMPORTANTE: Atualizar o timestamp de milissegundos ANTES de apagar
@@ -99,6 +99,6 @@ class SubjectController extends Controller
 
         SyncRequested::dispatch(auth()->id());
 
-        return response()->json(['message' => 'Disciplina eliminada com sucesso.']);
+        return response()->json(['message' => 'Pasta eliminada com sucesso.']);
     }
 }

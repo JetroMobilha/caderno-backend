@@ -117,10 +117,16 @@ class SyncController extends Controller
 
         foreach ($request->input('notebooks', []) as $data) {
             $incomingTime = (int)($data['updated_at'] ?? 0);
-            $notebook = Notebook::withTrashed()->where(function($q) use ($data) {
-                if (!empty($data['server_id'])) $q->where('id', $data['server_id']);
-                else $q->where('client_id', $data['client_id']);
-            })->first();
+            // 🛡️ SEGURANÇA: Filtrar apenas cadernos que pertencem ao utilizador ou partilhados com ele
+            $notebook = Notebook::withTrashed()
+                ->where(function ($q) use ($user) {
+                    $q->whereHas('subject', fn($sub) => $sub->where('user_id', $user->id))
+                      ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
+                })
+                ->where(function($q) use ($data) {
+                    if (!empty($data['server_id'])) $q->where('id', $data['server_id']);
+                    else $q->where('client_id', $data['client_id']);
+                })->first();
 
             if ($notebook) {
                 $role = ($notebook->subject && $notebook->subject->user_id === $user->id) ? 'owner' :

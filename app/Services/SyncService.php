@@ -28,7 +28,14 @@ class SyncService
         $isCreation = false;
         $isDeletion = !empty($pageData['is_deleted']) && $pageData['is_deleted'] == 1;
 
-        $localPage = Page::withTrashed()->where('client_id', $pageData['client_id'])->first();
+        // 🛡️ SEGURANÇA: Filtrar apenas folhas de cadernos aos quais o utilizador tem acesso
+        $localPage = Page::withTrashed()
+            ->whereHas('notebook', function ($q) use ($user) {
+                $q->whereHas('subject', fn($sub) => $sub->where('user_id', $user->id))
+                  ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
+            })
+            ->where('client_id', $pageData['client_id'])
+            ->first();
         $notebookId = $pageData['notebook_id'] ?? ($localPage ? $localPage->notebook_id : null);
 
         if (!$notebookId) return null;

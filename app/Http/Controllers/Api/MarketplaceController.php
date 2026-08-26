@@ -46,7 +46,7 @@ class MarketplaceController extends Controller
     public function acquire(Request $request, $id)
     {
         $user = Auth::user();
-        
+
         $originalNotebook = Notebook::where('id', $id)
             ->where('is_published', true)
             ->with('pages')
@@ -58,24 +58,28 @@ class MarketplaceController extends Controller
 
         try {
             $clonedNotebook = DB::transaction(function () use ($originalNotebook, $user) {
-                
+
                 $defaultSubject = Subject::firstOrCreate(
                     ['user_id' => $user->id, 'name' => 'Matérias Adquiridas 🛒'],
                     ['color' => '#0F4C5C', 'description' => 'Cadernos transferidos da loja']
                 );
 
                 $newNotebook = $originalNotebook->replicate();
+                $newNotebook->client_id = (string) \Illuminate\Support\Str::uuid(); // 🆔 Garantir ID único global
                 $newNotebook->user_id = $user->id;
                 $newNotebook->subject_id = $defaultSubject->id;
                 $newNotebook->role = 'owner';
                 $newNotebook->is_published = false;
                 $newNotebook->price = 0.00;
                 $newNotebook->original_notebook_id = $originalNotebook->id;
+                $newNotebook->updated_at_ms = (int)(microtime(true) * 1000); // 🕒 Novo timestamp para sync
                 $newNotebook->save();
 
                 foreach ($originalNotebook->pages as $page) {
                     $newPage = $page->replicate();
+                    $newPage->client_id = (string) \Illuminate\Support\Str::uuid(); // 🆔 Nova folha, novo ID
                     $newPage->notebook_id = $newNotebook->id;
+                    $newPage->updated_at_ms = (int)(microtime(true) * 1000);
                     $newPage->save();
                 }
 
