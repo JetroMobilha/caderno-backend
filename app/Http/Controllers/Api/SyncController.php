@@ -36,11 +36,13 @@ class SyncController extends Controller
                     else $q->where('client_id', $data['client_id']);
                 })->first();
 
+            // 🚀 TRATAMENTO DE ELIMINAÇÃO
             if (!empty($data['is_deleted']) && $data['is_deleted'] == 1) {
                 if ($subject && !$subject->trashed() && $incomingTime > ($subject->updated_at_ms ?? 0)) {
                     $subject->update(['updated_at_ms' => $incomingTime]);
                     $subject->delete();
                 }
+                // ✅ IMPORTANTE: Devolver confirmação mesmo para itens apagados
                 $syncedSubjects[] = $subject ? $subject->toArray() : ['client_id' => $data['client_id'], 'is_deleted' => 1];
                 continue;
             }
@@ -134,6 +136,7 @@ class SyncController extends Controller
                         $notebook->delete();
                     }
                 }
+                $syncedNotebooks[] = $notebook ? $notebook->toArray() : ['client_id' => $data['client_id'], 'is_deleted' => 1];
                 continue;
             }
 
