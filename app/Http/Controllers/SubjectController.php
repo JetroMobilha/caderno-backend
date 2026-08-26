@@ -38,16 +38,17 @@ class SubjectController extends Controller
             'name' => $request->name,
             'color' => $request->color ?? '#000000',
             'icon' => $request->icon ?? 'book',
+            'updated_at_ms' => (int)(microtime(true) * 1000),
         ]);
 
-        
+
         SyncRequested::dispatch($request->user()->id);
 
         return response()->json($subject, 201);
     }
 
     // =========================================================================
-    // ✏️ ATUALIZAR DISCIPLINA (Faltava este método! 🚀)
+    // ✏️ ATUALIZAR DISCIPLINA
     // =========================================================================
     public function update(Request $request, $id)
     {
@@ -69,6 +70,7 @@ class SubjectController extends Controller
             'name' => $request->name ?? $subject->name,
             'color' => $request->color ?? $subject->color,
             'icon' => $request->icon ?? $subject->icon,
+            'updated_at_ms' => (int)(microtime(true) * 1000),
         ]);
 
         SyncRequested::dispatch($request->user()->id);
@@ -87,7 +89,12 @@ class SubjectController extends Controller
             return response()->json(['message' => 'Disciplina não encontrada.'], 404);
         }
 
-        // 🗑️ Executa o Soft Delete
+        // 🚀 IMPORTANTE: Atualizar o timestamp de milissegundos ANTES de apagar
+        // para que o SyncService de outros dispositivos detete a mudança.
+        $subject->updated_at_ms = (int)(microtime(true) * 1000);
+        $subject->save();
+
+        // 🗑️ Executa o Soft Delete (Hooks no modelo tratarão dos cadernos)
         $subject->delete();
 
         SyncRequested::dispatch(auth()->id());

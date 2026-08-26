@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Subject extends Model
 {
-    use HasFactory,SoftDeletes;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
         'user_id',
@@ -18,6 +18,22 @@ class Subject extends Model
         'icon',
         'updated_at_ms',
     ];
+
+    protected static function booted()
+    {
+        static::deleting(function ($subject) {
+            // 🚀 Quando apagamos uma disciplina, garantimos que o timestamp de alta precisão
+            // é atualizado para que os clientes detetem a mudança via Sync.
+            $subject->updated_at_ms = (int)(microtime(true) * 1000);
+            $subject->save();
+
+            // 🗑️ ELIMINAÇÃO EM CASCATA: Apagar todos os cadernos associados.
+            // Usamos ->each(fn($n) => $n->delete()) para disparar o hook 'deleting' do modelo Notebook.
+            $subject->notebooks()->each(function ($notebook) {
+                $notebook->delete();
+            });
+        });
+    }
 
     // Uma disciplina pertence a um utilizador
     public function user() {

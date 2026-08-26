@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Notebook extends Model
 {
-    use HasFactory,SoftDeletes;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
         'client_id',
@@ -24,6 +24,15 @@ class Notebook extends Model
         'collaboration_mode',
         'updated_at_ms',
     ];
+
+    protected static function booted()
+    {
+        static::deleting(function ($notebook) {
+            // 🚀 Atualizar timestamp de alta precisão no Soft Delete
+            $notebook->updated_at_ms = (int)(microtime(true) * 1000);
+            $notebook->save();
+        });
+    }
 
     // Um caderno pertence a uma disciplina
     public function subject() {
