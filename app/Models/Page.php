@@ -219,4 +219,54 @@ class Page extends Model
         $context['page'] = ['id' => $this->id, 'number' => $this->page_number];
         return array_filter($context, static fn ($value) => $value !== null && $value !== '');
     }
+
+    /**
+     * 🚀 CLONAGEM PROFUNDA: Replicar a página com novas identidades para todos os elementos internos.
+     */
+    public function replicateWithNewIdentities(int $newNotebookId, ?int $newPageNumber = null)
+    {
+        $clone = $this->replicate();
+        $clone->notebook_id = $newNotebookId;
+        if ($newPageNumber !== null) {
+            $clone->page_number = $newPageNumber;
+        }
+        $clone->client_id = (string) Str::uuid();
+        $clone->updated_at_ms = (int)(microtime(true) * 1000);
+
+        $nowMs = $clone->updated_at_ms;
+        $pNum = $clone->page_number;
+
+        // 1. Clonar Strokes
+        $strokes = $this->stroke_data ?? [];
+        foreach ($strokes as &$s) {
+            $s['id'] = (string) Str::uuid();
+            $s['updated_at'] = $nowMs;
+            $s['page_number'] = $pNum;
+            $s['synced_with_cloud'] = 1; // Já nasce no servidor
+        }
+        $clone->stroke_data = $strokes;
+
+        // 2. Clonar Textos
+        $texts = $this->text_data ?? [];
+        foreach ($texts as &$t) {
+            $t['id'] = (string) Str::uuid();
+            $t['updated_at'] = $nowMs;
+            $t['page_number'] = $pNum;
+            $t['synced_with_cloud'] = 1;
+        }
+        $clone->text_data = $texts;
+
+        // 3. Clonar Imagens
+        $images = $this->image_data ?? [];
+        foreach ($images as &$i) {
+            $i['id'] = (string) Str::uuid();
+            $i['updated_at'] = $nowMs;
+            $i['page_number'] = $pNum;
+            $i['synced_with_cloud'] = 1;
+        }
+        $clone->image_data = $images;
+
+        $clone->save();
+        return $clone;
+    }
 }

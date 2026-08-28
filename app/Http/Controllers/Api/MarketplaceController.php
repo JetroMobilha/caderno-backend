@@ -76,11 +76,7 @@ class MarketplaceController extends Controller
                 $newNotebook->save();
 
                 foreach ($originalNotebook->pages as $page) {
-                    $newPage = $page->replicate();
-                    $newPage->client_id = (string) \Illuminate\Support\Str::uuid(); // 🆔 Nova folha, novo ID
-                    $newPage->notebook_id = $newNotebook->id;
-                    $newPage->updated_at_ms = (int)(microtime(true) * 1000);
-                    $newPage->save();
+                    $page->replicateWithNewIdentities($newNotebook->id);
                 }
 
                 return $newNotebook;
