@@ -250,8 +250,15 @@ class SyncController extends Controller
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
 
         $paginated = $query->orderBy('page_number')->paginate(50);
+
+        $items = collect($paginated->items())->map(function($p) {
+            $arr = $p->toArray();
+            $arr['is_deleted'] = $p->trashed() ? 1 : 0;
+            return $arr;
+        });
+
         return response()->json([
-            'data' => $paginated->items(),
+            'data' => $items,
             'links' => $paginated->linkCollection(),
             'meta' => [
                 'server_time' => now()->toIso8601String(),
