@@ -14,6 +14,9 @@ class Kernel extends ConsoleKernel
     {
         // Limpar sessões colaborativas inativas a cada minuto
         $schedule->command('session:cleanup')->everyMinute();
+
+        // 🚀 Limpar lixeira (itens com mais de 30 dias) diariamente
+        $schedule->command('app:cleanup-trash')->daily();
     }
 
     /**
