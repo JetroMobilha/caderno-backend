@@ -40,9 +40,10 @@ class SyncService
 
         if (!$notebookId) return null;
 
+        // 🚀 PERMITIR MOVIMENTAÇÃO ENTRE CADERNOS
         if ($localPage && $localPage->notebook_id != $notebookId) {
-            Log::warning("⚠️ [Sync] Tentativa de mover folha {$pageData['client_id']} do caderno {$localPage->notebook_id} para $notebookId abortada.");
-            return ['client_id' => $pageData['client_id'], 'status' => 'conflict_notebook_mismatch'];
+            Log::info("📦 [Sync] Movendo folha {$pageData['client_id']} do caderno {$localPage->notebook_id} para $notebookId");
+            // A autorização será verificada abaixo ao buscar o objeto $notebook
         }
 
         $notebook = Notebook::find($notebookId);
@@ -88,6 +89,9 @@ class SyncService
 
         // Só atualiza metadados se o cliente for mais recente que o servidor
         if ($shouldUpdateMetadata || !$localPage) {
+            if ($localPage && $localPage->page_number != ($pageData['page_number'] ?? $localPage->page_number)) {
+                Log::info("🔄 [Sync] Reordenação detectada para folha {$localPage->client_id}: {$localPage->page_number} -> {$pageData['page_number']}");
+            }
             $updateData['is_landscape'] = !empty($pageData['is_landscape']) ? 1 : 0;
             $updateData['is_frozen']    = !empty($pageData['is_frozen']) ? 1 : 0;
             $updateData['paper_size']   = $pageData['paper_size'] ?? 'A4';
@@ -122,8 +126,9 @@ class SyncService
 
         if ($localPage) {
             if($localPage->trashed()) {
+                Log::info("♻️ [Sync] Restaurando folha {$localPage->client_id}");
                 $localPage->restore();
-                $isCreation = true;
+                $isCreation = true; // Forçar broadcast estrutural
             }
             $localPage->update($updateData);
         } else {
@@ -157,6 +162,7 @@ class SyncService
         $serverTime = $localPage->updated_at_ms ?? 0;
 
         $result = $localPage->toArray();
+        $result['is_deleted'] = $localPage->trashed() ? 1 : 0; // Garantir estado no retorno
 
         if ($clientTime >= $serverTime) {
             // Cliente já tem a verdade ou enviou a mais recente.
