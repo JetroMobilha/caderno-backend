@@ -32,12 +32,16 @@ class SubjectController extends Controller
             'name' => 'required|string|max:255',
             'color' => 'nullable|string|max:9',
             'icon' => 'nullable|string|max:255',
+            'is_archived' => 'nullable|boolean',
+            'is_favorite' => 'nullable|boolean',
         ]);
 
         $subject = $request->user()->subjects()->create([
             'name' => $request->name,
             'color' => $request->color ?? '#000000',
             'icon' => $request->icon ?? 'book',
+            'is_archived' => $request->is_archived ?? false,
+            'is_favorite' => $request->is_favorite ?? false,
             'updated_at_ms' => (int)(microtime(true) * 1000),
         ]);
 
@@ -56,6 +60,8 @@ class SubjectController extends Controller
             'name' => 'sometimes|required|string|max:255',
             'color' => 'nullable|string|max:9',
             'icon' => 'nullable|string|max:255',
+            'is_archived' => 'nullable|boolean',
+            'is_favorite' => 'nullable|boolean',
         ]);
 
         // 🛡️ Segurança: Busca a matéria garantindo que o dono é o utilizador autenticado
@@ -70,6 +76,8 @@ class SubjectController extends Controller
             'name' => $request->name ?? $subject->name,
             'color' => $request->color ?? $subject->color,
             'icon' => $request->icon ?? $subject->icon,
+            'is_archived' => $request->has('is_archived') ? $request->is_archived : $subject->is_archived,
+            'is_favorite' => $request->has('is_favorite') ? $request->is_favorite : $subject->is_favorite,
             'updated_at_ms' => (int)(microtime(true) * 1000),
         ]);
 

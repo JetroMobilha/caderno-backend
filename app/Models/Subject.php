@@ -16,7 +16,14 @@ class Subject extends Model
         'name',
         'color',
         'icon',
+        'is_archived',
+        'is_favorite',
         'updated_at_ms',
+    ];
+
+    protected $casts = [
+        'is_archived' => 'boolean',
+        'is_favorite' => 'boolean',
     ];
 
     protected static function booted()

@@ -74,6 +74,9 @@ class NotebookController extends Controller
             'line_type'   => 'nullable|string|max:50',
             'paper_size'  => 'nullable|string|max:10',
             'line_spacing' => 'nullable|numeric|min:10|max:150',
+            'tags' => 'nullable|array',
+            'is_archived' => 'nullable|boolean',
+            'is_favorite' => 'nullable|boolean',
         ]);
 
         $notebook = $subject->notebooks()->create([
@@ -83,6 +86,9 @@ class NotebookController extends Controller
             'line_type'   => $request->line_type ?? 'ruled',
             'paper_size'  => $request->paper_size ?? 'A4',
             'line_spacing' => $request->line_spacing ?? 28,
+            'tags'        => $request->tags,
+            'is_archived' => $request->is_archived ?? false,
+            'is_favorite' => $request->is_favorite ?? false,
             'author_name' => $request->user()->name, // 🚀 Gravar autor original
         ]);
 
@@ -106,7 +112,7 @@ class NotebookController extends Controller
             return response()->json(['message' => 'Acesso negado.'], 403);
         }
 
-        $updateData = $request->only(['title', 'cover_type', 'color', 'line_type', 'paper_size', 'price', 'is_published', 'description', 'line_spacing', 'subject_id']);
+        $updateData = $request->only(['title', 'cover_type', 'color', 'line_type', 'paper_size', 'price', 'is_published', 'description', 'line_spacing', 'subject_id', 'tags', 'is_archived', 'is_favorite']);
 
         // 🛡️ Segurança: Validar se a nova disciplina pertence ao utilizador
         if (isset($updateData['subject_id'])) {

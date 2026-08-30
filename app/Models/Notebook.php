@@ -17,12 +17,22 @@ class Notebook extends Model
         'cover_type',
         'color',
         'cover_image',
-        'line_type',
-        'paper_size',
-        'line_spacing',
         'template_type',
         'collaboration_mode',
         'updated_at_ms',
+        'tags',
+        'is_archived',
+        'is_favorite',
+        'author_name',
+        'is_published',
+        'price',
+        'description',
+    ];
+
+    protected $casts = [
+        'tags' => 'array',
+        'is_archived' => 'boolean',
+        'is_favorite' => 'boolean',
     ];
 
     protected static function booted()

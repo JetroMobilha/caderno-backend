@@ -54,6 +54,8 @@ class SyncController extends Controller
                         'name' => trim($data['name'] ?? $subject->name),
                         'color' => $data['color'] ?? $subject->color,
                         'icon' => $data['icon'] ?? $subject->icon,
+                        'is_archived' => $data['is_archived'] ?? $subject->is_archived,
+                        'is_favorite' => $data['is_favorite'] ?? $subject->is_favorite,
                         'updated_at_ms' => $incomingTime,
                     ]);
                 }
@@ -64,6 +66,8 @@ class SyncController extends Controller
                     'name' => trim($data['name'] ?? 'Nova Disciplina'),
                     'color' => $data['color'] ?? '#000000',
                     'icon' => $data['icon'] ?? 'default-icon',
+                    'is_archived' => $data['is_archived'] ?? false,
+                    'is_favorite' => $data['is_favorite'] ?? false,
                     'updated_at_ms' => $incomingTime,
                 ]);
             }
@@ -146,7 +150,12 @@ class SyncController extends Controller
                 continue;
             }
 
-            $fields = ['client_id','subject_id','title','color','template_type','collaboration_mode','line_type','paper_size','updated_at_ms'];
+            $fields = [
+                'client_id','subject_id','title','color','template_type',
+                'collaboration_mode', 'updated_at_ms',
+                'tags', 'is_archived', 'is_favorite',
+                'author_name', 'is_published', 'price', 'description'
+            ];
             $updateData = collect($data)->only($fields)->toArray();
             $updateData['updated_at_ms'] = $incomingTime;
 
