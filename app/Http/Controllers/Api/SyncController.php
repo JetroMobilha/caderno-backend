@@ -133,9 +133,22 @@ class SyncController extends Controller
                 })->first();
 
             if ($notebook) {
-                $role = ($notebook->subject && $notebook->subject->user_id === $user->id) ? 'owner' :
-                    (DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->value('role') ?? 'viewer');
-                if ($role === 'viewer' || $role === 'student') continue;
+                $isOwner = ($notebook->subject && $notebook->subject->user_id === $user->id);
+                $pivot = DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->first();
+                $role = $isOwner ? 'owner' : ($pivot->role ?? 'viewer');
+
+                if ($role === 'viewer' || $role === 'student') {
+                    // Visualizadores só podem atualizar o SEU estado pessoal no pivô
+                    if ($pivot) {
+                        DB::table('notebook_user')->where('id', $pivot->id)->update([
+                            'is_archived' => $data['is_archived'] ?? $pivot->is_archived,
+                            'is_favorite' => $data['is_favorite'] ?? $pivot->is_favorite,
+                            'updated_at' => now(),
+                        ]);
+                    }
+                    $syncedNotebooks[] = $notebook->toArray();
+                    continue;
+                }
             }
 
             if (!empty($data['is_deleted']) && $data['is_deleted'] == 1) {
@@ -152,20 +165,37 @@ class SyncController extends Controller
 
             $fields = [
                 'client_id','subject_id','title','color','template_type',
-                'collaboration_mode', 'updated_at_ms',
-                'tags', 'is_archived', 'is_favorite',
+                'collaboration_mode', 'updated_at_ms','cover_type',
+                'tags', 'is_archived', 'is_favorite','cover_image',
                 'author_name', 'is_published', 'price', 'description'
             ];
-            $updateData = collect($data)->only($fields)->toArray();
-            $updateData['updated_at_ms'] = $incomingTime;
 
             if ($notebook) {
+                $isOwner = ($notebook->subject && $notebook->subject->user_id === $user->id);
                 if ($incomingTime >= ($notebook->updated_at_ms ?? 0)) {
                     if ($notebook->trashed()) $notebook->restore();
-                    $notebook->update($updateData);
+
+                    if ($isOwner) {
+                        $updateData = collect($data)->only($fields)->toArray();
+                        $updateData['updated_at_ms'] = $incomingTime;
+                        $notebook->update($updateData);
+                    } else {
+                        // Editor: Não sobrescreve is_archived/is_favorite do dono
+                        $editorFields = array_diff($fields, ['is_archived', 'is_favorite']);
+                        $updateData = collect($data)->only($editorFields)->toArray();
+                        $updateData['updated_at_ms'] = $incomingTime;
+                        $notebook->update($updateData);
+
+                        // Mas atualiza os SEUS estados no pivô
+                        DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->update([
+                            'is_archived' => $data['is_archived'] ?? false,
+                            'is_favorite' => $data['is_favorite'] ?? false,
+                            'updated_at' => now(),
+                        ]);
+                    }
                 }
             } else {
-                $notebook = Notebook::create($updateData);
+                $notebook = Notebook::create(collect($data)->only($fields)->toArray());
             }
             $syncedNotebooks[] = $notebook->toArray();
         }
@@ -179,8 +209,16 @@ class SyncController extends Controller
 
         $totalPending = $query->count();
         $serverUpdates = $query->limit(50)->get()->map(function ($nb) use ($user) {
-            $nb->role = ($nb->subject && $nb->subject->user_id === $user->id) ? 'owner' :
-                (DB::table('notebook_user')->where('notebook_id', $nb->id)->where('user_id', $user->id)->value('role') ?? 'viewer');
+            $isOwner = ($nb->subject && $nb->subject->user_id === $user->id);
+            if ($isOwner) {
+                $nb->role = 'owner';
+            } else {
+                $pivot = DB::table('notebook_user')->where('notebook_id', $nb->id)->where('user_id', $user->id)->first();
+                $nb->role = $pivot->role ?? 'viewer';
+                // Injetar estados pessoais no objeto para o app
+                $nb->is_archived = (bool)($pivot->is_archived ?? false);
+                $nb->is_favorite = (bool)($pivot->is_favorite ?? false);
+            }
             return $nb;
         });
 
@@ -208,7 +246,16 @@ class SyncController extends Controller
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
         $paginated = $query->paginate(50);
         $items = collect($paginated->items())->map(function ($nb) use ($user) {
-            $nb->role = ($nb->subject && $nb->subject->user_id === $user->id) ? 'owner' : 'viewer';
+            $isOwner = ($nb->subject && $nb->subject->user_id === $user->id);
+            if ($isOwner) {
+                $nb->role = 'owner';
+            } else {
+                $pivot = DB::table('notebook_user')->where('notebook_id', $nb->id)->where('user_id', $user->id)->first();
+                $nb->role = $pivot->role ?? 'viewer';
+                // Injetar estados pessoais
+                $nb->is_archived = (bool)($pivot->is_archived ?? false);
+                $nb->is_favorite = (bool)($pivot->is_favorite ?? false);
+            }
             return $nb;
         });
         return response()->json([
