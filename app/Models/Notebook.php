@@ -110,9 +110,16 @@ class Notebook extends Model
             if (count($participants) >= 5) break;
         }
 
+        // 🟢 NOVIDADE: Contagem Online em tempo real
+        $activeSession = CollaborativeSession::where('notebook_id', $this->id)
+            ->where('is_active', true)
+            ->first();
+        $onlineCount = $activeSession ? $activeSession->activeParticipants()->count() : 0;
+
         return [
             'total' => ($this->shared_users_count ?? $this->sharedUsers()->count()) + 1,
-            'list' => $participants
+            'list' => $participants,
+            'online_count' => $onlineCount
         ];
     }
 }
