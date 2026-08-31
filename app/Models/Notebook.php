@@ -95,14 +95,19 @@ class Notebook extends Model
         }
 
         // Carregar apenas os primeiros 4 convidados (Eager loaded no sync para performance)
-        $shared = $this->sharedUsers->take(4);
+        $shared = $this->sharedUsers;
         foreach ($shared as $s) {
+            // Evitar duplicar o dono se ele estiver na lista de sharedUsers por algum motivo
+            if ($owner && $s->id === $owner->id) continue;
+
             $participants[] = [
                 'id' => $s->id,
                 'name' => $s->name,
                 'avatar' => $s->avatar,
                 'role' => $s->pivot->role ?? 'viewer'
             ];
+
+            if (count($participants) >= 5) break;
         }
 
         return [
