@@ -167,7 +167,9 @@ class SyncController extends Controller
                 'client_id','subject_id','title','color','template_type',
                 'collaboration_mode', 'updated_at_ms','cover_type',
                 'tags', 'is_archived', 'is_favorite','cover_image',
-                'author_name', 'is_published', 'price', 'description'
+                'author_name', 'is_published', 'price', 'description',
+                'origin', 'last_updated_by_name',
+                'alternative_title', 'sharing_type', 'notifications_enabled'
             ];
 
             if ($notebook) {
@@ -203,7 +205,8 @@ class SyncController extends Controller
         $query = Notebook::withTrashed()->where(function ($q) use ($user) {
             $q->whereHas('subject', fn($sub) => $sub->where('user_id', $user->id))
               ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
-        });
+        })->with(['subject.user', 'sharedUsers']) // 🚀 Eager load para o accessor
+          ->withCount('sharedUsers');
 
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
 
@@ -219,6 +222,7 @@ class SyncController extends Controller
                 $nb->is_archived = (bool)($pivot->is_archived ?? false);
                 $nb->is_favorite = (bool)($pivot->is_favorite ?? false);
             }
+
             return $nb;
         });
 
@@ -242,7 +246,8 @@ class SyncController extends Controller
         $query = Notebook::withTrashed()->where(function ($q) use ($user) {
             $q->whereHas('subject', fn($sub) => $sub->where('user_id', $user->id))
               ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
-        });
+        })->with(['subject.user', 'sharedUsers'])
+          ->withCount('sharedUsers');
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
         $paginated = $query->paginate(50);
         $items = collect($paginated->items())->map(function ($nb) use ($user) {
@@ -256,6 +261,7 @@ class SyncController extends Controller
                 $nb->is_archived = (bool)($pivot->is_archived ?? false);
                 $nb->is_favorite = (bool)($pivot->is_favorite ?? false);
             }
+
             return $nb;
         });
         return response()->json([

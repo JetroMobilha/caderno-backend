@@ -10,6 +10,8 @@ class Notebook extends Model
 {
     use HasFactory, SoftDeletes;
 
+    protected $appends = ['participants_preview'];
+
     protected $fillable = [
         'client_id',
         'subject_id',
@@ -27,12 +29,18 @@ class Notebook extends Model
         'is_published',
         'price',
         'description',
+        'origin',
+        'last_updated_by_name',
+        'alternative_title',
+        'sharing_type',
+        'notifications_enabled',
     ];
 
     protected $casts = [
         'tags' => 'array',
         'is_archived' => 'boolean',
         'is_favorite' => 'boolean',
+        'notifications_enabled' => 'boolean',
     ];
 
     protected static function booted()
@@ -67,5 +75,39 @@ class Notebook extends Model
     public function getOwnerIdAttribute()
     {
         return $this->subject->user_id;
+    }
+
+    /**
+     * 🚀 Preview dinâmico para o App (não guardado na base de dados)
+     */
+    public function getParticipantsPreviewAttribute()
+    {
+        $owner = $this->subject->user ?? null;
+        $participants = [];
+
+        if ($owner) {
+            $participants[] = [
+                'id' => $owner->id,
+                'name' => $owner->name,
+                'avatar' => $owner->avatar,
+                'role' => 'owner'
+            ];
+        }
+
+        // Carregar apenas os primeiros 4 convidados (Eager loaded no sync para performance)
+        $shared = $this->sharedUsers->take(4);
+        foreach ($shared as $s) {
+            $participants[] = [
+                'id' => $s->id,
+                'name' => $s->name,
+                'avatar' => $s->avatar,
+                'role' => $s->pivot->role ?? 'viewer'
+            ];
+        }
+
+        return [
+            'total' => ($this->shared_users_count ?? $this->sharedUsers()->count()) + 1,
+            'list' => $participants
+        ];
     }
 }
