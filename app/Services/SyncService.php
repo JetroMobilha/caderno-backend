@@ -84,6 +84,7 @@ class SyncService
             $updateData['line_spacing'] = $pageData['line_spacing'] ?? ($localPage ? $localPage->line_spacing : null);
             $updateData['header_data']  = $pageData['header_data'] ?? ($localPage ? $localPage->header_data : ['title' => '']);
             $updateData['footer_data']  = $pageData['footer_data'] ?? ($localPage ? $localPage->footer_data : ['title' => '']);
+            $updateData['background_config'] = $pageData['background_config'] ?? ($localPage ? $localPage->background_config : null);
             $updateData['extracted_text'] = $pageData['extracted_text'] ?? ($localPage ? $localPage->extracted_text : null);
         }
 
@@ -189,6 +190,7 @@ class SyncService
                         'updated_at_ms' => $p->updated_at_ms,
                         'line_type' => $p->line_type,
                         'line_spacing' => $p->line_spacing,
+                        'background_config' => $p->background_config,
                         'fingerprint' => $p->generateFingerprint(),
                         'section_color' => $p->header_data['section_color'] ?? null,
                     ];

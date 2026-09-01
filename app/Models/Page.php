@@ -29,6 +29,7 @@ class Page extends Model
         'paper_size',
         'is_frozen',
         'background_image_path',
+        'background_config',
     ];
 
     protected $casts = [
@@ -40,6 +41,7 @@ class Page extends Model
         'image_data'   => 'array',
         'header_data'  => 'array',
         'footer_data'  => 'array',
+        'background_config' => 'array',
     ];
 
     public function notebook()
@@ -89,6 +91,11 @@ class Page extends Model
         $components[] = "ps:" . ($this->paper_size ?? 'A4');
         $components[] = "lt:" . ($this->line_type ?? 'ruled');
         $components[] = "ls:" . ($this->line_spacing ?? '28');
+
+        if ($this->background_config) {
+            $bc = is_array($this->background_config) ? $this->background_config : json_decode($this->background_config, true);
+            $components[] = "bc:" . ($bc['type'] ?? '') . ":" . ($bc['sub_type'] ?? '');
+        }
 
         return implode('|', $components);
     }
