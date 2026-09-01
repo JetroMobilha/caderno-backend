@@ -169,7 +169,8 @@ class SyncController extends Controller
                 'tags', 'is_archived', 'is_favorite','cover_image',
                 'author_name', 'is_published', 'price', 'description',
                 'origin', 'last_updated_by_name',
-                'alternative_title', 'sharing_type', 'notifications_enabled'
+                'alternative_title', 'sharing_type', 'notifications_enabled',
+                'configuration'
             ];
 
             if ($notebook) {

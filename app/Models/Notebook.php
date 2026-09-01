@@ -34,6 +34,7 @@ class Notebook extends Model
         'alternative_title',
         'sharing_type',
         'notifications_enabled',
+        'configuration',
     ];
 
     protected $casts = [
@@ -41,6 +42,7 @@ class Notebook extends Model
         'is_archived' => 'boolean',
         'is_favorite' => 'boolean',
         'notifications_enabled' => 'boolean',
+        'configuration' => 'array',
     ];
 
     protected static function booted()
