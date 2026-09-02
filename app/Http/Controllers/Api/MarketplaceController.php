@@ -17,7 +17,17 @@ class MarketplaceController extends Controller
     public function index(Request $request)
     {
         $query = Notebook::where('is_published', true)
-            ->with('user:id,name');
+            ->with(['user' => function($q) {
+                $q->select('users.id', 'users.name', 'users.avatar');
+            }]);
+
+        // 🚀 ORDENAÇÃO: Mostrar os mais recentes ou por relevância
+        $orderBy = $request->get('sort', 'newest');
+        if ($orderBy === 'newest') {
+            $query->orderBy('updated_at', 'desc');
+        } else if ($orderBy === 'price_low') {
+            $query->orderBy('price', 'asc');
+        }
 
         // Filtro de pesquisa por título, autor ou descrição
         if ($request->has('q') && !empty($request->q)) {
@@ -25,12 +35,13 @@ class MarketplaceController extends Controller
             $query->where(function ($q) use ($searchTerm) {
                 $q->where('title', 'LIKE', "%{$searchTerm}%")
                   ->orWhere('author_name', 'LIKE', "%{$searchTerm}%")
-                  ->orWhere('description', 'LIKE', "%{$searchTerm}%");
+                  ->orWhere('description', 'LIKE', "%{$searchTerm}%")
+                  ->orWhereHas('subject', fn($sub) => $sub->where('name', 'LIKE', "%{$searchTerm}%"));
             });
         }
 
-        // Devolve 10 itens por página com estrutura de paginação do Laravel
-        $notebooks = $query->orderBy('updated_at', 'desc')->paginate(10);
+        // Devolve 12 itens por página para grelhas (mais simétrico que 10)
+        $notebooks = $query->paginate(12);
 
         return response()->json([
             'data' => $notebooks->items(),
