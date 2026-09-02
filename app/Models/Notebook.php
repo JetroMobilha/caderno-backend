@@ -59,11 +59,6 @@ class Notebook extends Model
         return $this->belongsTo(Subject::class);
     }
 
-    // 🚀 Atalho para chegar ao dono do caderno rapidamente
-    public function user() {
-        return $this->hasOneThrough(User::class, Subject::class, 'id', 'id', 'subject_id', 'user_id');
-    }
-
     public function pages() {
         return $this->hasMany(Page::class);
     }

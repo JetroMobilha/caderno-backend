@@ -17,7 +17,7 @@ class MarketplaceController extends Controller
     public function index(Request $request)
     {
         $query = Notebook::where('is_published', true)
-            ->with(['user' => function($q) {
+            ->with(['subject.user' => function($q) {
                 $q->select('users.id', 'users.name', 'users.avatar');
             }]);
 
