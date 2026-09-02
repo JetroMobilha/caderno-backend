@@ -52,29 +52,45 @@ class MarketplaceController extends Controller
             ->with('pages')
             ->firstOrFail();
 
-        if ($originalNotebook->user_id === $user->id) {
+        // 🚀 Usar o getter owner_id definido no modelo
+        if ($originalNotebook->owner_id === $user->id) {
             return response()->json(['message' => 'Já és o proprietário original deste caderno.'], 400);
         }
 
         try {
             $clonedNotebook = DB::transaction(function () use ($originalNotebook, $user) {
+                $nowMs = (int)(microtime(true) * 1000);
 
-                $defaultSubject = Subject::firstOrCreate(
-                    ['user_id' => $user->id, 'name' => 'Matérias Adquiridas 🛒'],
-                    ['color' => '#0F4C5C', 'description' => 'Cadernos transferidos da loja']
-                );
+                // 🚀 1. Garantir que a pasta de destino existe e está marcada como atualizada para o Sync
+                $defaultSubject = Subject::withTrashed()->where('user_id', $user->id)
+                    ->where('name', 'Matérias Adquiridas 🛒')
+                    ->first();
 
+                if (!$defaultSubject) {
+                    $defaultSubject = Subject::create([
+                        'user_id' => $user->id,
+                        'client_id' => (string) \Illuminate\Support\Str::uuid(),
+                        'name' => 'Matérias Adquiridas 🛒',
+                        'color' => '#0F4C5C',
+                        'updated_at_ms' => $nowMs,
+                    ]);
+                } else if ($defaultSubject->trashed()) {
+                    $defaultSubject->restore();
+                    $defaultSubject->update(['updated_at_ms' => $nowMs]);
+                }
+
+                // 🚀 2. Replicar o caderno
                 $newNotebook = $originalNotebook->replicate();
-                $newNotebook->client_id = (string) \Illuminate\Support\Str::uuid(); // 🆔 Garantir ID único global
-                $newNotebook->user_id = $user->id;
+                $newNotebook->client_id = (string) \Illuminate\Support\Str::uuid();
                 $newNotebook->subject_id = $defaultSubject->id;
                 $newNotebook->role = 'owner';
-                $newNotebook->is_published = false;
+                $newNotebook->is_published = false; // Cópias começam privadas
                 $newNotebook->price = 0.00;
                 $newNotebook->original_notebook_id = $originalNotebook->id;
-                $newNotebook->updated_at_ms = (int)(microtime(true) * 1000); // 🕒 Novo timestamp para sync
+                $newNotebook->updated_at_ms = $nowMs;
                 $newNotebook->save();
 
+                // 🚀 3. Replicar páginas (replicateWithNewIdentities já trata dos timestamps)
                 foreach ($originalNotebook->pages as $page) {
                     $page->replicateWithNewIdentities($newNotebook->id);
                 }
