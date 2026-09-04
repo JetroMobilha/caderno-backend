@@ -26,23 +26,48 @@ class Page extends Model
         'text_data',
         'ocr_data',
         'image_data',
+        'objects_data',
         'paper_size',
         'is_frozen',
+        'is_infinite', // 🚀 v29
+        'is_favorite', // 🚀 v29
         'background_image_path',
         'background_config',
+        'viewport_matrix', // 🚀 v29
+        'layers', // 🚀 v29
     ];
 
     protected $casts = [
         'is_landscape' => 'boolean',
         'is_frozen'    => 'boolean',
+        'is_infinite'  => 'boolean', // 🚀 v29
+        'is_favorite'  => 'boolean', // 🚀 v29
         'stroke_data'  => 'array',
         'text_data'    => 'array',
         'ocr_data'     => 'array',
         'image_data'   => 'array',
+        'objects_data' => 'array', // 🚀 v29
         'header_data'  => 'array',
         'footer_data'  => 'array',
         'background_config' => 'array',
+        'layers'       => 'array', // 🚀 v29
     ];
+
+    protected $appends = ['unified_objects']; // 🚀 Auxiliar para Sync
+
+    public function getUnifiedObjectsAttribute(): array
+    {
+        if ($this->objects_data && is_array($this->objects_data)) {
+            return $this->objects_data;
+        }
+
+        // Retro-conversão para o App v29+
+        $objs = [];
+        if (!empty($this->stroke_data)) foreach($this->stroke_data as $s) { $s['type'] = 'stroke'; $objs[] = $s; }
+        if (!empty($this->text_data)) foreach($this->text_data as $t) { $t['type'] = 'text'; $objs[] = $t; }
+        if (!empty($this->image_data)) foreach($this->image_data as $i) { $i['type'] = 'image'; $objs[] = $i; }
+        return $objs;
+    }
 
     public function notebook()
     {
@@ -50,63 +75,92 @@ class Page extends Model
     }
 
     /**
-     * 🆔 Gera um Fingerprint da página para detetar divergências (Deve bater com o Flutter)
+     * 🆔 Gera um Fingerprint da página para detetar divergências (Alinhado com Flutter v29+)
      */
     public function generateFingerprint(): string
     {
         $components = [];
 
-        // 1. Strokes - Ordenação por ID (String UUID) e uso do timestamp
-        $strokes = is_array($this->stroke_data) ? $this->stroke_data : json_decode($this->stroke_data ?? '[]', true) ?? [];
-        $activeStrokes = collect($strokes)
-            ->filter(fn($s) => !($s['is_deleted'] ?? false))
-            ->sortBy(fn($s) => (string)$s['id']);
+        // 1. Objetos (Ordem por ID)
+        $objects = $this->objects_data ?? $this->getUnifiedObjectsAttribute();
+        $activeObjects = collect($objects)
+            ->filter(fn($o) => !($o['is_deleted'] ?? false))
+            ->sortBy(fn($o) => (string)$o['id']);
 
-        foreach ($activeStrokes as $s) {
-            $components[] = "s:{$s['id']}:" . (int)($s['updated_at'] ?? 0);
+        foreach ($activeObjects as $o) {
+            $components[] = "{$o['type']}:{$o['id']}:" . (int)($o['updated_at'] ?? 0);
         }
 
-        // 2. Texts
-        $texts = is_array($this->text_data) ? $this->text_data : json_decode($this->text_data ?? '[]', true) ?? [];
-        $activeTexts = collect($texts)
-            ->filter(fn($t) => !($t['is_deleted'] ?? false))
-            ->sortBy(fn($t) => (string)$t['id']);
-
-        foreach ($activeTexts as $t) {
-            $components[] = "t:{$t['id']}:" . (int)($t['updated_at'] ?? 0);
-        }
-
-        // 3. Images
-        $images = is_array($this->image_data) ? $this->image_data : json_decode($this->image_data ?? '[]', true) ?? [];
-        $activeImages = collect($images)
-            ->filter(fn($i) => !($i['is_deleted'] ?? false))
-            ->sortBy(fn($i) => (string)$i['id']);
-
-        foreach ($activeImages as $i) {
-            $components[] = "i:{$i['id']}:" . (int)($i['updated_at'] ?? 0);
-        }
-
-        // 4. Metadados Críticos
+        // 2. Metadados de Estado (Fidelidade 100% com Flutter)
         $components[] = "f:" . ($this->is_frozen ? 1 : 0);
+        $components[] = "fav:" . ($this->is_favorite ? 1 : 0);
         $components[] = "ps:" . ($this->paper_size ?? 'A4');
-        $components[] = "lt:" . ($this->line_type ?? 'ruled');
-        $components[] = "ls:" . ($this->line_spacing ?? '28');
+        $components[] = "inf:" . ($this->is_infinite ? 1 : 0);
 
-        if ($this->background_config) {
-            $bc = is_array($this->background_config) ? $this->background_config : json_decode($this->background_config, true);
-            $components[] = "bc:" . ($bc['type'] ?? '') . ":" . ($bc['sub_type'] ?? '');
+        if ($this->header_data && !empty($this->header_data['section'])) {
+            $components[] = "sc:{$this->header_data['section']}:" . ($this->header_data['section_color'] ?? '');
         }
 
         return implode('|', $components);
     }
 
     /**
-     * Funde os itens JSON (strokes, text, images) garantindo a integridade dos dados.
+     * ✍️ Extrai os traços (strokes) para processamento de OCR.
+     * Tenta ler de objects_data (v29+) primeiro, senão recorre ao stroke_data legado.
      */
-    public static function mergeJsonItems($oldData, $newItems, $userId = null, $userRole = 'student')
+    public function getStrokes(): array
     {
-        $oldItems = is_array($oldData) ? $oldData : json_decode($oldData, true) ?? [];
-        $newItems = is_array($newItems) ? $newItems : json_decode($newItems, true) ?? [];
+        if ($this->objects_data && is_array($this->objects_data)) {
+            return collect($this->objects_data)
+                ->filter(fn($o) => ($o['type'] ?? '') === 'stroke' && !($o['is_deleted'] ?? false))
+                ->values()
+                ->toArray();
+        }
+
+        return is_array($this->stroke_data) ? $this->stroke_data : json_decode($this->stroke_data ?? '[]', true) ?? [];
+    }
+
+    /**
+     * 🚀 v29+: Getters para novos tipos de objetos na lista unificada.
+     */
+    public function getShapes(): array { return $this->filterObjects('shape'); }
+    public function getAudios(): array { return $this->filterObjects('audio'); }
+    public function getAnimations(): array { return $this->filterObjects('animation'); }
+    public function getTables(): array { return $this->filterObjects('table'); }
+    public function getLinks(): array { return $this->filterObjects('link'); }
+    public function getAttachments(): array { return $this->filterObjects('attachment'); }
+
+    private function filterObjects(string $type): array
+    {
+        if (!$this->objects_data || !is_array($this->objects_data)) return [];
+        return collect($this->objects_data)
+            ->filter(fn($o) => ($o['type'] ?? '') === $type && !($o['is_deleted'] ?? false))
+            ->values()
+            ->toArray();
+    }
+
+    private function appendLegacyFingerprint(&$components) {
+        $strokes = is_array($this->stroke_data) ? $this->stroke_data : json_decode($this->stroke_data ?? '[]', true) ?? [];
+        foreach (collect($strokes)->filter(fn($s) => !($s['is_deleted'] ?? false))->sortBy(fn($s) => (string)$s['id']) as $s) {
+            $components[] = "s:{$s['id']}:" . (int)($s['updated_at'] ?? 0);
+        }
+        $texts = is_array($this->text_data) ? $this->text_data : json_decode($this->text_data ?? '[]', true) ?? [];
+        foreach (collect($texts)->filter(fn($t) => !($t['is_deleted'] ?? false))->sortBy(fn($t) => (string)$t['id']) as $t) {
+            $components[] = "t:{$t['id']}:" . (int)($t['updated_at'] ?? 0);
+        }
+        $images = is_array($this->image_data) ? $this->image_data : json_decode($this->image_data ?? '[]', true) ?? [];
+        foreach (collect($images)->filter(fn($i) => !($i['is_deleted'] ?? false))->sortBy(fn($i) => (string)$i['id']) as $i) {
+            $components[] = "i:{$i['id']}:" . (int)($i['updated_at'] ?? 0);
+        }
+    }
+
+    /**
+     * Funde os itens JSON garantindo a integridade dos dados (Last Write Wins).
+     */
+    public static function mergeJsonItems($oldData, $newData, $userId = null, $userRole = 'student')
+    {
+        $oldItems = is_array($oldData) ? $oldData : json_decode($oldData ?? '[]', true) ?? [];
+        $newItems = is_array($newData) ? $newData : json_decode($newData ?? '[]', true) ?? [];
 
         $merged = collect($oldItems)->keyBy('id');
 
@@ -138,6 +192,14 @@ class Page extends Model
     }
 
     /**
+     * Alias para compatibilidade com a nova estrutura de objetos.
+     */
+    public static function mergeObjects($oldData, $newData, $userId = null, $userRole = 'student')
+    {
+        return self::mergeJsonItems($oldData, $newData, $userId, $userRole);
+    }
+
+    /**
      * Simplifica os traços da página para reduzir o consumo de banco de dados e largura de banda.
      * Implementa o algoritmo de Ramer-Douglas-Peucker.
      */
@@ -151,6 +213,19 @@ class Page extends Model
             }
         }
         return $strokes;
+    }
+
+    /**
+     * 🚀 v29+: Simplifica traços dentro da lista unificada de objetos.
+     */
+    public static function simplifyUnifiedObjects(array $objects, $epsilon = 0.4): array
+    {
+        foreach ($objects as &$o) {
+            if (($o['type'] ?? '') === 'stroke' && isset($o['points']) && is_array($o['points']) && count($o['points']) > 15) {
+                $o['points'] = self::ramerDouglasPeucker($o['points'], $epsilon);
+            }
+        }
+        return $objects;
     }
 
     private static function ramerDouglasPeucker($points, $epsilon)
@@ -181,9 +256,9 @@ class Page extends Model
 
     private static function perpendicularDistance($p, $start, $end)
     {
-        $x = $p['dx']; $y = $p['dy'];
-        $x1 = $start['dx']; $y1 = $start['dy'];
-        $x2 = $end['dx']; $y2 = $end['dy'];
+        $x = $p['dx'] ?? $p['x'] ?? 0; $y = $p['dy'] ?? $p['y'] ?? 0;
+        $x1 = $start['dx'] ?? $start['x'] ?? 0; $y1 = $start['dy'] ?? $start['y'] ?? 0;
+        $x2 = $end['dx'] ?? $end['x'] ?? 0; $y2 = $end['dy'] ?? $end['y'] ?? 0;
 
         $numerator = abs(($y2 - $y1) * $x - ($x2 - $x1) * $y + $x2 * $y1 - $y2 * $x1);
         $denominator = sqrt(pow($y2 - $y1, 2) + pow($x2 - $x1, 2));
@@ -228,7 +303,7 @@ class Page extends Model
     }
 
     /**
-     * 🚀 CLONAGEM PROFUNDA: Replicar a página com novas identidades para todos os elementos internos.
+     * 🚀 CLONAGEM PROFUNDA v29+: Replicar a página com novas identidades para todos os objetos (unificados ou legados).
      */
     public function replicateWithNewIdentities(int $newNotebookId, ?int $newPageNumber = null)
     {
@@ -243,37 +318,40 @@ class Page extends Model
         $nowMs = $clone->updated_at_ms;
         $pNum = $clone->page_number;
 
-        // 1. Clonar Strokes
-        $strokes = $this->stroke_data ?? [];
-        foreach ($strokes as &$s) {
-            $s['id'] = (string) Str::uuid();
-            $s['updated_at'] = $nowMs;
-            $s['page_number'] = $pNum;
-            $s['synced_with_cloud'] = 1; // Já nasce no servidor
+        // 1. Clonar Objetos Unificados (v29+)
+        if ($this->objects_data && is_array($this->objects_data)) {
+            $objects = $this->objects_data;
+            foreach ($objects as &$o) {
+                $o['id'] = (string) Str::uuid();
+                $o['updated_at'] = $nowMs;
+                $o['page_number'] = $pNum;
+                $o['synced_with_cloud'] = 1;
+            }
+            $clone->objects_data = $objects;
         }
-        $clone->stroke_data = $strokes;
 
-        // 2. Clonar Textos
-        $texts = $this->text_data ?? [];
-        foreach ($texts as &$t) {
-            $t['id'] = (string) Str::uuid();
-            $t['updated_at'] = $nowMs;
-            $t['page_number'] = $pNum;
-            $t['synced_with_cloud'] = 1;
-        }
-        $clone->text_data = $texts;
+        // 2. Clonar Metadados de Layout (v29+)
+        $clone->viewport_matrix = $this->viewport_matrix;
+        $clone->layers = $this->layers; // JSON array deep copy by replicate()
 
-        // 3. Clonar Imagens
-        $images = $this->image_data ?? [];
-        foreach ($images as &$i) {
-            $i['id'] = (string) Str::uuid();
-            $i['updated_at'] = $nowMs;
-            $i['page_number'] = $pNum;
-            $i['synced_with_cloud'] = 1;
-        }
-        $clone->image_data = $images;
+        // 2. Clonar Legados (Strokes, Textos, Imagens) para segurança
+        $this->cloneLegacyData($clone, $nowMs, $pNum);
 
         $clone->save();
         return $clone;
+    }
+
+    private function cloneLegacyData(&$clone, $nowMs, $pNum) {
+        $strokes = $this->stroke_data ?? [];
+        foreach ($strokes as &$s) { $s['id'] = (string) Str::uuid(); $s['updated_at'] = $nowMs; $s['page_number'] = $pNum; }
+        $clone->stroke_data = $strokes;
+
+        $texts = $this->text_data ?? [];
+        foreach ($texts as &$t) { $t['id'] = (string) Str::uuid(); $t['updated_at'] = $nowMs; $t['page_number'] = $pNum; }
+        $clone->text_data = $texts;
+
+        $images = $this->image_data ?? [];
+        foreach ($images as &$i) { $i['id'] = (string) Str::uuid(); $i['updated_at'] = $nowMs; $i['page_number'] = $pNum; }
+        $clone->image_data = $images;
     }
 }

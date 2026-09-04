@@ -410,4 +410,23 @@ class NotebookController extends Controller
             ->name($notebook->title . '.pdf')
             ->download();
     }
+
+    /**
+     * 🚀 DUPLICAR CADERNO EM CASCATA
+     */
+    public function duplicate(Request $request, $id)
+    {
+        $user = $request->user();
+        $notebook = Notebook::whereHas('subject', function($q) use ($user) {
+            $q->where('user_id', $user->id);
+        })->findOrFail($id);
+
+        $clone = DB::transaction(function () use ($notebook) {
+            return $notebook->replicateWithNewIdentities($notebook->subject_id);
+        });
+
+        SyncRequested::dispatch($user->id);
+
+        return response()->json($clone, 201);
+    }
 }

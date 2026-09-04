@@ -124,4 +124,24 @@ class Notebook extends Model
             'online_count' => $onlineCount
         ];
     }
+
+    /**
+     * 🚀 CLONAGEM PROFUNDA: Replicar o caderno e todas as suas folhas.
+     */
+    public function replicateWithNewIdentities(int $targetSubjectId)
+    {
+        $clone = $this->replicate();
+        $clone->subject_id = $targetSubjectId;
+        $clone->client_id = (string) Str::uuid();
+        $clone->updated_at_ms = (int)(microtime(true) * 1000);
+        // Cópias manuais começam como privadas
+        $clone->is_published = 0;
+        $clone->save();
+
+        foreach ($this->pages as $page) {
+            $page->replicateWithNewIdentities($clone->id);
+        }
+
+        return $clone;
+    }
 }

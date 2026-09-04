@@ -40,16 +40,7 @@ class ProcessPageOcr implements ShouldQueue
             return;
         }
 
-        $strokes = [];
-        $decodedStrokeData = $page->stroke_data;
-
-        if (is_string($decodedStrokeData)) {
-            $decodedStrokeData = json_decode($decodedStrokeData, true);
-        }
-
-        if (is_array($decodedStrokeData)) {
-            $strokes = array_values(array_filter($decodedStrokeData, static fn ($item) => is_array($item) || is_object($item)));
-        }
+        $strokes = $page->getStrokes();
 
         if (empty($strokes)) {
             return;

@@ -109,4 +109,20 @@ class SubjectController extends Controller
 
         return response()->json(['message' => 'Pasta eliminada com sucesso.']);
     }
+
+    /**
+     * 🚀 DUPLICAR DISCIPLINAS (PASTA) EM CASCATA
+     */
+    public function duplicate(Request $request, $id)
+    {
+        $subject = Subject::where('user_id', $request->user()->id)->findOrFail($id);
+
+        $clone = DB::transaction(function () use ($subject) {
+            return $subject->replicateWithNewIdentities();
+        });
+
+        SyncRequested::dispatch($request->user()->id);
+
+        return response()->json($clone, 201);
+    }
 }

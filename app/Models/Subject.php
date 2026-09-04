@@ -51,4 +51,22 @@ class Subject extends Model
     public function notebooks() {
         return $this->hasMany(Notebook::class);
     }
+
+    /**
+     * 🚀 CLONAGEM PROFUNDA: Replicar a pasta e todos os seus cadernos/folhas.
+     */
+    public function replicateWithNewIdentities()
+    {
+        $clone = $this->replicate();
+        $clone->client_id = (string) Str::uuid();
+        $clone->name = $this->name . ' (Cópia)';
+        $clone->updated_at_ms = (int)(microtime(true) * 1000);
+        $clone->save();
+
+        foreach ($this->notebooks as $notebook) {
+            $notebook->replicateWithNewIdentities($clone->id);
+        }
+
+        return $clone;
+    }
 }

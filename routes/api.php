@@ -63,12 +63,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // 📚 Disciplinas (CRUD)
     Route::apiResource('subjects', SubjectController::class);
+    Route::post('/subjects/{id}/duplicate', [SubjectController::class, 'duplicate']); // 🚀 NOVO
 
     // 📓 Cadernos (CRUD Clássico e Exportação)
     Route::get('/subjects/{subject_id}/notebooks', [NotebookController::class, 'index']);
     Route::post('/subjects/{subject_id}/notebooks', [NotebookController::class, 'store']);
     Route::put('/notebooks/{notebook}', [NotebookController::class, 'update']);
     Route::delete('/notebooks/{notebook}', [NotebookController::class, 'destroy']);
+    Route::post('/notebooks/{id}/duplicate', [NotebookController::class, 'duplicate']); // 🚀 NOVO
     Route::get('/notebooks/{notebook}/export-pdf', [NotebookController::class, 'exportPdf']);
     Route::post('/notebooks/import-pdf', [NotebookController::class, 'importPdf']);
 

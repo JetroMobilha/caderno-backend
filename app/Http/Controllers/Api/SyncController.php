@@ -6,8 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Services\SyncService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use App\Models\CollaborativeSession;
-use App\Models\CollaborativeSessionPage;
 use App\Models\Subject;
 use App\Models\Notebook;
 use App\Models\Page;
@@ -36,13 +34,11 @@ class SyncController extends Controller
                     else $q->where('client_id', $data['client_id']);
                 })->first();
 
-            // 🚀 TRATAMENTO DE ELIMINAÇÃO
             if (!empty($data['is_deleted']) && $data['is_deleted'] == 1) {
                 if ($subject && !$subject->trashed() && $incomingTime > ($subject->updated_at_ms ?? 0)) {
                     $subject->update(['updated_at_ms' => $incomingTime]);
                     $subject->delete();
                 }
-                // ✅ IMPORTANTE: Devolver confirmação mesmo para itens apagados
                 $syncedSubjects[] = $subject ? $subject->toArray() : ['client_id' => $data['client_id'], 'is_deleted' => 1];
                 continue;
             }
@@ -121,7 +117,6 @@ class SyncController extends Controller
 
         foreach ($request->input('notebooks', []) as $data) {
             $incomingTime = (int)($data['updated_at'] ?? 0);
-            // 🛡️ SEGURANÇA: Filtrar apenas cadernos que pertencem ao utilizador ou partilhados com ele
             $notebook = Notebook::withTrashed()
                 ->where(function ($q) use ($user) {
                     $q->whereHas('subject', fn($sub) => $sub->where('user_id', $user->id))
@@ -138,7 +133,6 @@ class SyncController extends Controller
                 $role = $isOwner ? 'owner' : ($pivot->role ?? 'viewer');
 
                 if ($role === 'viewer' || $role === 'student') {
-                    // Visualizadores só podem atualizar o SEU estado pessoal no pivô
                     if ($pivot) {
                         DB::table('notebook_user')->where('id', $pivot->id)->update([
                             'is_archived' => $data['is_archived'] ?? $pivot->is_archived,
@@ -177,19 +171,15 @@ class SyncController extends Controller
                 $isOwner = ($notebook->subject && $notebook->subject->user_id === $user->id);
                 if ($incomingTime >= ($notebook->updated_at_ms ?? 0)) {
                     if ($notebook->trashed()) $notebook->restore();
-
                     if ($isOwner) {
                         $updateData = collect($data)->only($fields)->toArray();
                         $updateData['updated_at_ms'] = $incomingTime;
                         $notebook->update($updateData);
                     } else {
-                        // Editor: Não sobrescreve is_archived/is_favorite do dono
                         $editorFields = array_diff($fields, ['is_archived', 'is_favorite']);
                         $updateData = collect($data)->only($editorFields)->toArray();
                         $updateData['updated_at_ms'] = $incomingTime;
                         $notebook->update($updateData);
-
-                        // Mas atualiza os SEUS estados no pivô
                         DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->update([
                             'is_archived' => $data['is_archived'] ?? false,
                             'is_favorite' => $data['is_favorite'] ?? false,
@@ -206,24 +196,20 @@ class SyncController extends Controller
         $query = Notebook::withTrashed()->where(function ($q) use ($user) {
             $q->whereHas('subject', fn($sub) => $sub->where('user_id', $user->id))
               ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
-        })->with(['subject.user', 'sharedUsers']) // 🚀 Eager load para o accessor
-          ->withCount('sharedUsers');
+        })->with(['subject.user', 'sharedUsers'])->withCount('sharedUsers');
 
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
 
         $totalPending = $query->count();
         $serverUpdates = $query->limit(50)->get()->map(function ($nb) use ($user) {
             $isOwner = ($nb->subject && $nb->subject->user_id === $user->id);
-            if ($isOwner) {
-                $nb->role = 'owner';
-            } else {
+            if ($isOwner) { $nb->role = 'owner'; }
+            else {
                 $pivot = DB::table('notebook_user')->where('notebook_id', $nb->id)->where('user_id', $user->id)->first();
                 $nb->role = $pivot->role ?? 'viewer';
-                // Injetar estados pessoais no objeto para o app
                 $nb->is_archived = (bool)($pivot->is_archived ?? false);
                 $nb->is_favorite = (bool)($pivot->is_favorite ?? false);
             }
-
             return $nb;
         });
 
@@ -247,22 +233,18 @@ class SyncController extends Controller
         $query = Notebook::withTrashed()->where(function ($q) use ($user) {
             $q->whereHas('subject', fn($sub) => $sub->where('user_id', $user->id))
               ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
-        })->with(['subject.user', 'sharedUsers'])
-          ->withCount('sharedUsers');
+        })->with(['subject.user', 'sharedUsers'])->withCount('sharedUsers');
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
         $paginated = $query->paginate(50);
         $items = collect($paginated->items())->map(function ($nb) use ($user) {
             $isOwner = ($nb->subject && $nb->subject->user_id === $user->id);
-            if ($isOwner) {
-                $nb->role = 'owner';
-            } else {
+            if ($isOwner) { $nb->role = 'owner'; }
+            else {
                 $pivot = DB::table('notebook_user')->where('notebook_id', $nb->id)->where('user_id', $user->id)->first();
                 $nb->role = $pivot->role ?? 'viewer';
-                // Injetar estados pessoais
                 $nb->is_archived = (bool)($pivot->is_archived ?? false);
                 $nb->is_favorite = (bool)($pivot->is_favorite ?? false);
             }
-
             return $nb;
         });
         return response()->json([
@@ -317,6 +299,7 @@ class SyncController extends Controller
         $items = collect($paginated->items())->map(function($p) {
             $arr = $p->toArray();
             $arr['is_deleted'] = $p->trashed() ? 1 : 0;
+            $arr['objects_data'] = $p->unified_objects;
             return $arr;
         });
 
