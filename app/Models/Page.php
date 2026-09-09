@@ -326,6 +326,11 @@ class Page extends Model
                 $o['updated_at'] = $nowMs;
                 $o['page_number'] = $pNum;
                 $o['synced_with_cloud'] = 1;
+
+                // 🚀 v30: Tratamento especial para anexos
+                if ($o['type'] === 'attachment' && !empty($o['local_path'])) {
+                    // Futuramente podemos duplicar o arquivo físico aqui se necessário
+                }
             }
             $clone->objects_data = $objects;
         }
