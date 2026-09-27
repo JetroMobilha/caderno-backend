@@ -109,6 +109,20 @@ class SyncService
         try {
             PageUpdated::dispatch($localPage);
             $this->broadcastStructureUpdate($notebook);
+
+            // 🚀 Disparar SyncRequested para a conta do utilizador (outros dispositivos)
+            \App\Events\SyncRequested::dispatch($user->id);
+
+            // 🚀 Se for um caderno partilhado, notificar também o dono e colaboradores
+            if ($notebook->subject && $notebook->subject->user_id !== $user->id) {
+                \App\Events\SyncRequested::dispatch($notebook->subject->user_id);
+            }
+            $sharedUsers = DB::table('notebook_user')->where('notebook_id', $notebook->id)->pluck('user_id');
+            foreach ($sharedUsers as $sUid) {
+                if ($sUid != $user->id) {
+                    \App\Events\SyncRequested::dispatch($sUid);
+                }
+            }
         } catch (\Exception $e) {}
 
         $result = $localPage->toArray();

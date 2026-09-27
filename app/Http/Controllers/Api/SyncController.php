@@ -11,6 +11,7 @@ use App\Models\Notebook;
 use App\Models\Page;
 use App\Models\LessonRecording;
 use App\Events\NotebookDeleted;
+use App\Events\SyncRequested;
 
 class SyncController extends Controller
 {
@@ -75,6 +76,10 @@ class SyncController extends Controller
 
         $totalPending = $query->count();
         $serverUpdates = $query->limit(50)->get();
+
+        if (!empty($syncedSubjects)) {
+            try { SyncRequested::dispatch($user->id); } catch (\Exception $e) {}
+        }
 
         return response()->json([
             'message' => 'OK',
@@ -213,6 +218,20 @@ class SyncController extends Controller
             return $nb;
         });
 
+        if (!empty($syncedNotebooks)) {
+            try {
+                SyncRequested::dispatch($user->id);
+                foreach ($syncedNotebooks as $sNb) {
+                    if (!empty($sNb['id'])) {
+                        $sharedUids = DB::table('notebook_user')->where('notebook_id', $sNb['id'])->pluck('user_id');
+                        foreach ($sharedUids as $sUid) {
+                            if ($sUid != $user->id) SyncRequested::dispatch($sUid);
+                        }
+                    }
+                }
+            } catch (\Exception $e) {}
+        }
+
         return response()->json([
             'message' => 'OK',
             'synced_notebooks' => $syncedNotebooks,
@@ -264,16 +283,42 @@ class SyncController extends Controller
     {
         $user = $request->user();
         $clientPages = $request->input('pages', []);
+        $lastSyncedAt = $request->input('last_synced_at');
+        $notebookId = $request->input('notebook_id');
         $syncedPages = [];
+
         DB::transaction(function () use ($user, $clientPages, &$syncedPages) {
             foreach ($clientPages as $pageData) {
                 $res = $this->syncService->processPageData($pageData, $user);
                 if ($res) $syncedPages[] = $res;
             }
         });
+
+        if (!empty($syncedPages)) {
+            try { SyncRequested::dispatch($user->id); } catch (\Exception $e) {}
+        }
+
+        $query = Page::withTrashed()->whereHas('notebook', function ($q) use ($user) {
+            $q->whereHas('subject', fn($s) => $s->where('user_id', $user->id))
+              ->orWhereHas('sharedUsers', fn($s) => $s->where('user_id', $user->id));
+        });
+        if ($notebookId) $query->where('notebook_id', $notebookId);
+        if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
+
+        $totalPending = $query->count();
+        $serverUpdates = $query->orderBy('page_number')->limit(50)->get()->map(function($p) {
+            $arr = $p->toArray();
+            $arr['is_deleted'] = $p->trashed() ? 1 : 0;
+            $arr['objects_data'] = $p->unified_objects;
+            return $arr;
+        });
+
         return response()->json([
             'message' => 'OK',
             'synced_pages' => $syncedPages,
+            'server_updates' => $serverUpdates,
+            'has_more' => $totalPending > 50,
+            'total_pending' => $totalPending,
             'meta' => [
                 'server_time' => now()->toIso8601String(),
                 'server_time_ms' => (int)(microtime(true) * 1000)
