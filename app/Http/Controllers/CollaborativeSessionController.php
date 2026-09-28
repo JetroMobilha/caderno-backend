@@ -112,6 +112,7 @@ class CollaborativeSessionController extends Controller
         return response()->json([
             'active' => true,
             'session_id' => $session->id,
+            'user_role' => $userRole, // 🚀 ROBUSTECIDO: Devolve o papel exato do utilizador (owner/editor/student/viewer)
             'authority_id' => $authority ? $authority->user_id : null,
             'participants_count' => $session->activeParticipants()->count(),
             'started_at' => $session->started_at,
