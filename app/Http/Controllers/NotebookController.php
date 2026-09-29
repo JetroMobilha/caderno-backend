@@ -26,27 +26,32 @@ class NotebookController extends Controller
     {
         $user = $request->user();
 
-        // Aba de Partilhados
+        // Aba de Partilhados (Alinhado com a lógica de Eloquent do SyncController)
         if ($subject_id == -1) {
-            $shared = Notebook::join('notebook_user', 'notebooks.id', '=', 'notebook_user.notebook_id')
-                ->where('notebook_user.user_id', $user->id)
-                ->whereNull('notebooks.deleted_at')
-                ->withCount(['pages', 'sharedUsers']) // 🚀 Contagem dinâmica
-                ->select('notebooks.*', 'notebook_user.role')
-                ->get()
-                ->map(function($n) {
-                    $n->subject_id = -1;
+            $shared = Notebook::whereHas('sharedUsers', function ($q) use ($user) {
+                $q->where('user_id', $user->id);
+            })
+            ->whereNull('deleted_at')
+            ->withCount(['pages', 'sharedUsers']) // 🚀 Contagem dinâmica
+            ->get()
+            ->map(function($n) use ($user) {
+                $n->subject_id = -1;
 
-                    // 🚀 Adicionar metadados de sessão viva
-                    $session = CollaborativeSession::where('notebook_id', $n->id)
-                        ->where('is_active', true)
-                        ->first();
+                $pivot = DB::table('notebook_user')->where('notebook_id', $n->id)->where('user_id', $user->id)->first();
+                $n->role = $pivot->role ?? 'viewer';
+                $n->is_archived = (bool)($pivot->is_archived ?? false);
+                $n->is_favorite = (bool)($pivot->is_favorite ?? false);
 
-                    $n->alternative_title = $session ? $session->alternative_title : null;
-                    $n->sharing_type = $session ? $session->sharing_type : 'full';
+                // 🚀 Adicionar metadados de sessão viva
+                $session = CollaborativeSession::where('notebook_id', $n->id)
+                    ->where('is_active', true)
+                    ->first();
 
-                    return $n;
-                });
+                $n->alternative_title = $session ? $session->alternative_title : null;
+                $n->sharing_type = $session ? $session->sharing_type : 'full';
+
+                return $n;
+            });
             return response()->json($shared);
         }
 
