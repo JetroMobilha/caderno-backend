@@ -1,7 +1,9 @@
 <?php
 
 use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\DB;
 use App\Models\Notebook;
+use App\Models\CollaborativeSession;
 
 /*
 |--------------------------------------------------------------------------
@@ -23,19 +25,29 @@ Broadcast::channel('notebook.{notebookId}', function ($user, $notebookId) {
     }
 
     // 2. Segurança: O utilizador é o Dono da Disciplina?
-    $isOwner = $notebook->subject && $notebook->subject->user_id === $user->id;
+    $isOwner = ($notebook->subject && $notebook->subject->user_id === $user->id);
 
     // 3. Segurança: O utilizador é um Colaborador convidado na tabela pivô?
     $pivot = DB::table('notebook_user')->where('notebook_id', $notebook->id)->where('user_id', $user->id)->first();
     $isCollaborator = $pivot !== null;
 
+    // 4. Segurança: Existe uma sessão colaborativa ativa para este caderno?
+    $hasActiveSession = CollaborativeSession::where('notebook_id', $notebook->id)->where('is_active', true)->exists();
+
     // 🎯 Se passar num dos testes, autoriza com dados completos para a sala virtual!
-    if ($isOwner || $isCollaborator) {
+    if ($isOwner || $isCollaborator || $hasActiveSession) {
+        $effectiveRole = 'student';
+        if ($isOwner) {
+            $effectiveRole = 'owner';
+        } elseif ($pivot && !empty($pivot->role)) {
+            $effectiveRole = $pivot->role;
+        }
+
         return [
             'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
-            'role' => $isOwner ? 'owner' : ($pivot->role ?? 'student')
+            'role' => $effectiveRole
         ];
     }
 
@@ -44,7 +56,5 @@ Broadcast::channel('notebook.{notebookId}', function ($user, $notebookId) {
 
 // 🚀 O CANAL PRIVADO DE SINCRONIZAÇÃO MULTI-DISPOSITIVO
 Broadcast::channel('user.{id}', function ($user, $id) {
-    // Regra de Ouro: O ID do utilizador autenticado via Sanctum
-    // tem de ser exatamente igual ao ID do canal que ele tenta ouvir.
     return (int) $user->id === (int) $id;
 });
