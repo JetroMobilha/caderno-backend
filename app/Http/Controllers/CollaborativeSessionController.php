@@ -10,6 +10,7 @@ use App\Models\Notebook;
 use App\Models\Page;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis; // 🚀 Adicionado para Histórico Server-Authoritative
 
 class CollaborativeSessionController extends Controller
 {
@@ -421,5 +422,59 @@ class CollaborativeSessionController extends Controller
         event(new \App\Events\VoicePolicyUpdated($session, $targetUserId, $allowed));
 
         return response()->json(['status' => 'voice_updated', 'user_id' => $targetUserId, 'allowed' => $allowed]);
+    }
+
+    /**
+     * 🚀 GUARDA UMA AÇÃO NO HISTÓRICO DA SESSÃO (REDIS)
+     * Isto permite que novos utilizadores recuperem o histórico sem pedir a colegas via WebSocket.
+     */
+    public function recordAction(Request $request, $notebook_id)
+    {
+        $action = $request->input('action');
+        if (!$action) {
+            return response()->json(['error' => 'No action provided'], 400);
+        }
+
+        // Extrai o timestamp para a filtragem. Tenta procurar no action_data, ou na raiz
+        $timestamp = $action['data']['timestamp'] ?? $action['timestamp'] ?? round(microtime(true) * 1000);
+        $action['server_ts'] = $timestamp;
+
+        $redisKey = "session:{$notebook_id}:history";
+
+        // Guardar no Redis como uma lista (JSON)
+        Redis::rpush($redisKey, json_encode($action));
+
+        // Define que o histórico expira após 4 horas (evitar lixo se a sessão morrer)
+        Redis::expire($redisKey, 60 * 60 * 4);
+
+        return response()->json(['status' => 'recorded']);
+    }
+
+    /**
+     * 🚀 RETORNA O HISTÓRICO DA SESSÃO PARA SINCRONIZAÇÃO APÓS HIBERNAÇÃO
+     */
+    public function getHistory(Request $request, $notebook_id)
+    {
+        $since = $request->input('since', 0); // Timestamp em milissegundos
+        $redisKey = "session:{$notebook_id}:history";
+
+        // Obtém todas as ações guardadas
+        $actionsJson = Redis::lrange($redisKey, 0, -1);
+        $filteredActions = [];
+
+        foreach ($actionsJson as $jsonStr) {
+            $action = json_decode($jsonStr, true);
+            $ts = $action['server_ts'] ?? $action['data']['timestamp'] ?? 0;
+
+            if ($ts >= $since) {
+                $filteredActions[] = $action;
+            }
+        }
+
+        return response()->json([
+            'status' => 'ok',
+            'count' => count($filteredActions),
+            'actions' => $filteredActions
+        ]);
     }
 }

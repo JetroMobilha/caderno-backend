@@ -86,6 +86,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/notebooks/{notebook_id}/pages', [PageController::class, 'index']);
     Route::post('/notebooks/{notebook_id}/pages', [PageController::class, 'store']);
     Route::post('/notebooks/{notebook_id}/upload-image', [NotebookController::class, 'uploadImage']);
+    Route::post('/notebooks/{notebook_id}/upload-file', [NotebookController::class, 'uploadFile']);
     // 🎥 WebRTC (Colaboração em Tempo Real)
     Route::post('/notebooks/{notebook_id}/webrtc/signal', [WebRtcController::class, 'signal']);
     Route::post('/notebooks/{notebook}/upload-audio', [NotebookController::class, 'uploadAudio']);
@@ -138,6 +139,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/notebooks/{id}/session/heartbeat', [App\Http\Controllers\CollaborativeSessionController::class, 'heartbeat']);
     Route::post('/notebooks/{id}/session/leave', [App\Http\Controllers\CollaborativeSessionController::class, 'leave']);
     Route::get('/notebooks/{id}/session/status', [App\Http\Controllers\CollaborativeSessionController::class, 'getStatus']);
+
+    // 🚀 REDIS: Histórico de Colaboração (Server-Authoritative)
+    Route::post('/notebooks/{id}/session/action', [App\Http\Controllers\CollaborativeSessionController::class, 'recordAction']);
+    Route::get('/notebooks/{id}/session/history', [App\Http\Controllers\CollaborativeSessionController::class, 'getHistory']);
 });
 
 

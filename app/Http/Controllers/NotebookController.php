@@ -357,6 +357,11 @@ class NotebookController extends Controller
         return response()->json(['url' => asset('storage/' . $path)]);
     }
 
+    public function uploadFile(Request $request, $id) {
+        $path = $request->file('file')->store('notebooks/files', 'public');
+        return response()->json(['url' => asset('storage/' . $path)]);
+    }
+
     public function uploadAudio(Request $request, Notebook $notebook) {
         $request->validate([
             'audio' => 'required|file',
