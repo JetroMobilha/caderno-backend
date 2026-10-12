@@ -12,7 +12,8 @@ Este backend foi desenvolvido em **Laravel 10** e fornece uma API RESTful rápid
 * 📂 **Organização Hierárquica:** Gestão de Disciplinas (Subjects) e Cadernos (Notebooks).
 * 🖨️ **Importação de PDF para Caderno:** Converte arquivos PDF em novos cadernos, com cada página do PDF se tornando uma página do caderno. (Ver [docs/flutter_pdf_import_guide.md](docs/flutter_pdf_import_guide.md) para detalhes de integração.)
 * ✍️ **Sincronização Ultrarrápida:** Motor de desenho que guarda traços (strokes) em formato JSON, concebido para gastar o mínimo de dados móveis possível.
-* 🤝 **Colaboração em Tempo Real:** Sistema de partilha de cadernos com permissões avançadas (Viewer / Editor).
+* ⚡ **Arquitetura de Colaboração (Server-Authoritative):** Sincronização em tempo real ultra-robusta usando WebSockets (Laravel Reverb) combinados com **Redis** para retenção de histórico P2P e gestão de presenças em memória, anulando a sobrecarga de I/O na base de dados.
+* 🤝 **Colaboração em Tempo Real:** Sistema de partilha de cadernos com permissões avançadas (Viewer / Editor / Microfone Aberto e Fechado via WebRTC).
 * 💰 **Integração com Multicaixa:** Preparado para pagamentos locais em Kwanzas via referência Multicaixa para subscrições do Plano Pro.
 
 ## 🚀 Como testar o projeto localmente
@@ -42,7 +43,8 @@ cp .env.example .env
 php artisan key:generate
 ```
 
-4. **Preparar a Base de Dados:**
+4. **Preparar a Base de Dados e Cache Redis:**
+Garante que tens o servidor MySQL e o Redis a correr no teu computador.
 ```bash
 php artisan migrate
 ```
@@ -53,6 +55,15 @@ php artisan serve
 ```
 
 A API estará disponível em `http://127.0.0.1:8000/api`.
+
+## 🌐 Arquitetura de Colaboração (Redis + Reverb)
+
+O Caderno Digital foi reestruturado para utilizar um modelo de colaboração híbrido **Server-Authoritative**, abandonando o modelo P2P restrito que sobrecarregava as ligações WebSocket:
+
+* **Redis como "Memória Muscular" (RAM):** Em vez de escrever constantemente no MySQL que o "Utilizador X está ativo" (Heartbeats), tudo passou para a memória Redis com chaves voláteis (TTL). Isto elimina os congestionamentos (I/O) no disco.
+* **Recuperação de Histórico Instantânea:** As ações de desenho são enviadas via API REST e guardadas temporariamente numa Fila (List) no Redis. Se alguém perder a ligação (hibernação), não chateia a rede dos colegas por WebSocket para obter 5MB de traços; descarrega instantaneamente o histórico a partir da Cloud via um endpoint HTTP rapidíssimo (`GET /session/history`).
+* **WebSockets Otimizados:** O Laravel Reverb continua a atuar, mas apenas para o que importa: reencaminhar posições do cursor ao vivo e disparar eventos leves de atualização de UI (Sem sobrecarga de payloads grandes).
+* **Anexos e Documentos Partilhados:** Os ficheiros não circulam pelo WebSocket. O Frontend faz um `POST` autorizado por HTTP ao servidor, recebe o `remoteUrl`, e partilha essa string com os colegas, permitindo partilha de PDFs e Imagens sem quebras na sessão.
 
 ## ✍️ Reconhecimento de escrita manual (gratuito)
 

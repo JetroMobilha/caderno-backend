@@ -72,18 +72,35 @@ class CollaborativeSessionController extends Controller
             Log::info("📄 [Session] " . count($sharedPageIds) . " páginas vinculadas à sala.");
         }
 
+        // 🚀 GUARDAR PARTICIPANTE NO REDIS (Em Memória)
+        $canSpeak = in_array($userRole, ['owner', 'editor']) ? true : ($session->voice_mode === 'open');
+        $participantData = [
+            'user_id' => $user->id,
+            'name' => $user->name,
+            'role' => $userRole,
+            'can_speak' => $canSpeak,
+            'joined_at' => now()->timestamp,
+        ];
+
+        $redisParticipantsKey = "session:{$session->id}:participants";
+        Redis::hset($redisParticipantsKey, $user->id, json_encode($participantData));
+
+        // Também damos um pulso inicial no heartbeat
+        $redisHeartbeatKey = "session:{$notebook_id}:heartbeat:user:{$user->id}";
+        Redis::setex($redisHeartbeatKey, 40, "alive");
+
+        // Registo persistente no MySQL para histórico futuro, mas não vital para o Live
         $participant = CollaborativeSessionParticipant::updateOrCreate(
             ['session_id' => $session->id, 'user_id' => $user->id, 'left_at' => null],
             [
                 'role' => $userRole,
                 'joined_at' => now(),
                 'last_heartbeat' => now(),
-                // 🚀 Se for owner/editor, sempre pode falar. Se for student, depende do modo.
-                'can_speak' => in_array($userRole, ['owner', 'editor']) ? true : ($session->voice_mode === 'open')
+                'can_speak' => $canSpeak
             ]
         );
 
-        // Eleger autoridade por hierarquia
+        // Eleger autoridade por hierarquia (AGORA LÊ DO REDIS)
         $authority = $this->electAuthority($session);
 
         // 🚀 LISTA DE PÁGINAS AUTORIZADAS (Estado Final)
@@ -208,15 +225,25 @@ class CollaborativeSessionController extends Controller
 
         // Se o modo de voz mudou, atualizar permissões de quem já está na sala
         if ($session->is_active) {
+            $redisParticipantsKey = "session:{$session->id}:participants";
+            $allCached = Redis::hgetall($redisParticipantsKey);
+
             if ($voiceMode === 'open') {
-                CollaborativeSessionParticipant::where('session_id', $session->id)
-                    ->whereNull('left_at')
-                    ->update(['can_speak' => true]);
+                CollaborativeSessionParticipant::where('session_id', $session->id)->whereNull('left_at')->update(['can_speak' => true]);
+                foreach ($allCached as $uid => $jsonStr) {
+                    $pData = json_decode($jsonStr, true);
+                    $pData['can_speak'] = true;
+                    Redis::hset($redisParticipantsKey, $uid, json_encode($pData));
+                }
             } elseif ($voiceMode === 'authority_only') {
-                CollaborativeSessionParticipant::where('session_id', $session->id)
-                    ->whereNull('left_at')
-                    ->whereNotIn('role', ['owner', 'editor'])
-                    ->update(['can_speak' => false]);
+                CollaborativeSessionParticipant::where('session_id', $session->id)->whereNull('left_at')->whereNotIn('role', ['owner', 'editor'])->update(['can_speak' => false]);
+                foreach ($allCached as $uid => $jsonStr) {
+                    $pData = json_decode($jsonStr, true);
+                    if (!in_array($pData['role'], ['owner', 'editor'])) {
+                        $pData['can_speak'] = false;
+                        Redis::hset($redisParticipantsKey, $uid, json_encode($pData));
+                    }
+                }
             }
 
             event(new \App\Events\VoicePolicyUpdated($session));
@@ -271,21 +298,19 @@ class CollaborativeSessionController extends Controller
 
     /**
      * O App envia um sinal de vida periódico (Heartbeat).
+     * 🚀 Agora usa REDIS para Zero-I/O na base de dados (Protege o MySQL).
      */
     public function heartbeat(Request $request, $notebook_id)
     {
         $user = $request->user();
 
-        $participant = CollaborativeSessionParticipant::whereHas('session', function($q) use ($notebook_id) {
-            $q->where('notebook_id', $notebook_id)->where('is_active', true);
-        })->where('user_id', $user->id)->whereNull('left_at')->first();
+        $redisHeartbeatKey = "session:{$notebook_id}:heartbeat:user:{$user->id}";
 
-        if ($participant) {
-            $participant->update(['last_heartbeat' => now()]);
-            return response()->json(['status' => 'alive']);
-        }
+        // Define que este utilizador está vivo por 40 segundos.
+        // Se não houver ping em 40s, a chave evapora-se e ele é considerado offline.
+        Redis::setex($redisHeartbeatKey, 40, "alive");
 
-        return response()->json(['status' => 'session_not_found'], 404);
+        return response()->json(['status' => 'alive']);
     }
 
     /**
@@ -295,17 +320,24 @@ class CollaborativeSessionController extends Controller
     {
         $user = $request->user();
 
-        $participant = CollaborativeSessionParticipant::whereHas('session', function($q) use ($notebook_id) {
-            $q->where('notebook_id', $notebook_id)->where('is_active', true);
-        })->where('user_id', $user->id)->whereNull('left_at')->first();
+        $session = CollaborativeSession::where('notebook_id', $notebook_id)->where('is_active', true)->first();
+        if ($session) {
+            // 🚀 LIMPEZA REDIS
+            $redisParticipantsKey = "session:{$session->id}:participants";
+            Redis::hdel($redisParticipantsKey, $user->id);
+            Redis::del("session:{$notebook_id}:heartbeat:user:{$user->id}");
 
-        if ($participant) {
-            $participant->update(['left_at' => now()]);
-
-            $session = $participant->session;
-            if ($session->activeParticipants()->count() === 0) {
+            // Verifica quantos ativos sobraram no Redis
+            $activeCount = count($this->getActiveParticipantsFromRedis($session));
+            if ($activeCount === 0) {
                 $session->update(['is_active' => false, 'ended_at' => now()]);
             }
+
+            // Registo no MySQL
+            CollaborativeSessionParticipant::where('session_id', $session->id)
+                ->where('user_id', $user->id)
+                ->whereNull('left_at')
+                ->update(['left_at' => now()]);
         }
 
         return response()->json(['status' => 'left']);
@@ -329,49 +361,74 @@ class CollaborativeSessionController extends Controller
             return response()->json(['active' => false]);
         }
 
-        $authority = $this->electAuthority($session);
+        $activeParticipants = $session->is_active ? $this->getActiveParticipantsFromRedis($session) : [];
+        $authority = $this->electAuthority($session, $activeParticipants);
 
         // 🚀 LISTA DE PÁGINAS AUTORIZADAS
         $authorizedPages = CollaborativeSessionPage::where('session_id', $session->id)
             ->pluck('page_id')
             ->toArray();
 
-        $participant = CollaborativeSessionParticipant::where('session_id', $session->id)
-            ->where('user_id', $user->id)
-            ->whereNull('left_at')
-            ->first();
+        // Extrair os meus dados do Redis (ou falso)
+        $myParticipantData = collect($activeParticipants)->firstWhere('user_id', $user->id);
 
         return response()->json([
             'active' => (bool)$session->is_active,
-            'authority_id' => $authority ? $authority->user_id : null,
-            'authority_name' => $authority ? $authority->user->name : null,
-            'participants_count' => $session->is_active ? $session->activeParticipants()->count() : 0,
+            'authority_id' => $authority['user_id'] ?? null,
+            'authority_name' => $authority['name'] ?? null,
+            'participants_count' => count($activeParticipants),
             'started_at' => $session->started_at,
             'sharing_type' => $session->sharing_type,
-            'voice_mode' => $session->voice_mode, // 🚀
-            'can_speak' => $participant ? (bool)$participant->can_speak : false, // 🚀
+            'voice_mode' => $session->voice_mode,
+            'can_speak' => $myParticipantData ? (bool)$myParticipantData['can_speak'] : false,
             'alternative_title' => $session->alternative_title,
             'authorized_page_ids' => $authorizedPages,
         ]);
     }
 
     /**
-     * Eleger o "Líder" da sessão baseado na hierarquia de papéis.
+     * Recupera os participantes que estão realmente online através da memória REDIS (Heartbeats)
      */
-    private function electAuthority(CollaborativeSession $session)
+    private function getActiveParticipantsFromRedis(CollaborativeSession $session)
     {
-        return CollaborativeSessionParticipant::where('session_id', $session->id)
-            ->whereNull('left_at')
-            ->select('collaborative_session_participants.*')
-            ->join('users', 'users.id', '=', 'collaborative_session_participants.user_id')
-            ->orderByRaw("CASE
-                WHEN role = 'owner' THEN 1
-                WHEN role = 'editor' THEN 2
-                WHEN role = 'student' THEN 3
-                ELSE 4 END ASC")
-            ->orderBy('joined_at', 'asc')
-            ->with('user:id,name')
-            ->first();
+        $redisParticipantsKey = "session:{$session->id}:participants";
+        $allCached = Redis::hgetall($redisParticipantsKey);
+
+        $active = [];
+        foreach ($allCached as $userId => $jsonStr) {
+            $isAlive = Redis::exists("session:{$session->notebook_id}:heartbeat:user:{$userId}");
+            if ($isAlive) {
+                $active[] = json_decode($jsonStr, true);
+            } else {
+                // Garbage Collection: remove do Hash se o heartbeat já expirou
+                Redis::hdel($redisParticipantsKey, $userId);
+            }
+        }
+        return $active;
+    }
+
+    /**
+     * Eleger o "Líder" da sessão baseado na hierarquia de papéis. (MEMÓRIA REDIS)
+     */
+    private function electAuthority(CollaborativeSession $session, $activeParticipants = null)
+    {
+        if ($activeParticipants === null) {
+            $activeParticipants = $this->getActiveParticipantsFromRedis($session);
+        }
+
+        if (empty($activeParticipants)) return null;
+
+        // Ordenar por hierarquia de papel e data de entrada
+        usort($activeParticipants, function($a, $b) {
+            $roleWeights = ['owner' => 1, 'editor' => 2, 'student' => 3];
+            $weightA = $roleWeights[$a['role']] ?? 4;
+            $weightB = $roleWeights[$b['role']] ?? 4;
+
+            if ($weightA !== $weightB) return $weightA <=> $weightB;
+            return $a['joined_at'] <=> $b['joined_at'];
+        });
+
+        return $activeParticipants[0];
     }
 
     /**
@@ -418,6 +475,15 @@ class CollaborativeSessionController extends Controller
             ->firstOrFail();
 
         $participant->update(['can_speak' => $allowed]);
+
+        // 🚀 Atualizar na Cache Redis
+        $redisParticipantsKey = "session:{$session->id}:participants";
+        $pDataStr = Redis::hget($redisParticipantsKey, $targetUserId);
+        if ($pDataStr) {
+            $pData = json_decode($pDataStr, true);
+            $pData['can_speak'] = $allowed;
+            Redis::hset($redisParticipantsKey, $targetUserId, json_encode($pData));
+        }
 
         event(new \App\Events\VoicePolicyUpdated($session, $targetUserId, $allowed));
 
