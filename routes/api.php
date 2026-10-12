@@ -143,6 +143,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // 🚀 REDIS: Histórico de Colaboração (Server-Authoritative)
     Route::post('/notebooks/{id}/session/action', [App\Http\Controllers\CollaborativeSessionController::class, 'recordAction']);
     Route::get('/notebooks/{id}/session/history', [App\Http\Controllers\CollaborativeSessionController::class, 'getHistory']);
+
+    // 💬 REDIS: Chat da Sessão
+    Route::post('/notebooks/{id}/session/chat', [App\Http\Controllers\CollaborativeSessionController::class, 'recordChat']);
+    Route::get('/notebooks/{id}/session/chat', [App\Http\Controllers\CollaborativeSessionController::class, 'getChatHistory']);
 });
 
 

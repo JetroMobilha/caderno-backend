@@ -543,4 +543,46 @@ class CollaborativeSessionController extends Controller
             'actions' => $filteredActions
         ]);
     }
+
+    /**
+     * 💬 GUARDA UMA MENSAGEM DE CHAT NA SESSÃO (REDIS)
+     */
+    public function recordChat(Request $request, $notebook_id)
+    {
+        $message = $request->input('message');
+        if (!$message) {
+            return response()->json(['error' => 'No message provided'], 400);
+        }
+
+        $redisKey = "session:{$notebook_id}:chat";
+
+        // Guardar no Redis como uma lista (JSON)
+        Redis::rpush($redisKey, json_encode($message));
+
+        // Limita o histórico de chat às últimas 100 mensagens (Opcional, mas recomendado)
+        Redis::ltrim($redisKey, -100, -1);
+
+        // Define que o histórico expira após 4 horas
+        Redis::expire($redisKey, 60 * 60 * 4);
+
+        return response()->json(['status' => 'recorded']);
+    }
+
+    /**
+     * 💬 RETORNA O HISTÓRICO DE CHAT DA SESSÃO
+     */
+    public function getChatHistory(Request $request, $notebook_id)
+    {
+        $redisKey = "session:{$notebook_id}:chat";
+        $messagesJson = Redis::lrange($redisKey, 0, -1);
+
+        $messages = array_map(function($jsonStr) {
+            return json_decode($jsonStr, true);
+        }, $messagesJson);
+
+        return response()->json([
+            'status' => 'ok',
+            'messages' => $messages
+        ]);
+    }
 }
