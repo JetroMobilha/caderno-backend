@@ -96,6 +96,7 @@ class Page extends Model
         $components[] = "fav:" . ($this->is_favorite ? 1 : 0);
         $components[] = "ps:" . ($this->paper_size ?? 'A4');
         $components[] = "inf:" . ($this->is_infinite ? 1 : 0);
+        $components[] = "lt:" . ($this->line_type ?? 'blank');
 
         if ($this->header_data && !empty($this->header_data['section'])) {
             $components[] = "sc:{$this->header_data['section']}:" . ($this->header_data['section_color'] ?? '');
