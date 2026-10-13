@@ -44,8 +44,8 @@ class SyncService
         $incomingTime = (int)($pageData['updated_at'] ?? 0);
         $localTime = $localPage ? ($localPage->updated_at_ms ?? 0) : 0;
 
-        // Determinar se devemos atualizar metadados (se for mais recente ou novo)
-        $shouldUpdateMeta = ($incomingTime > $localTime || !$localPage);
+        // Determinar se devemos atualizar metadados (se for mais recente, igual ou novo)
+        $shouldUpdateMeta = ($incomingTime >= $localTime || !$localPage);
 
         $updateData = [
             'notebook_id'   => $notebook->id,
