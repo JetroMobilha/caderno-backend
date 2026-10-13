@@ -491,8 +491,8 @@ class CollaborativeSessionController extends Controller
     }
 
     /**
-     * 🚀 GUARDA UMA AÇÃO NO HISTÓRICO DA SESSÃO (REDIS)
-     * Isto permite que novos utilizadores recuperem o histórico sem pedir a colegas via WebSocket.
+     * 🚀 GUARDA UMA AÇÃO NO HISTÓRICO DA SESSÃO (REDIS + MYSQL)
+     * Atualiza a memória de sessão Redis E a base de dados MySQL no mesmo pedido!
      */
     public function recordAction(Request $request, $notebook_id)
     {
@@ -502,16 +502,62 @@ class CollaborativeSessionController extends Controller
         }
 
         // Extrai o timestamp para a filtragem. Tenta procurar no action_data, ou na raiz
-        $timestamp = $action['data']['timestamp'] ?? $action['timestamp'] ?? round(microtime(true) * 1000);
+        $timestamp = (int)($action['data']['timestamp'] ?? $action['timestamp'] ?? round(microtime(true) * 1000));
         $action['server_ts'] = $timestamp;
 
         $redisKey = "session:{$notebook_id}:history";
 
-        // Guardar no Redis como uma lista (JSON)
+        // 1. Guardar no Redis como uma lista (JSON)
         Redis::rpush($redisKey, json_encode($action));
 
-        // Define que o histórico expira após 4 horas (evitar lixo se a sessão morrer)
-        Redis::expire($redisKey, 60 * 60 * 4);
+        // Define que o histórico expira após 24 horas de sessão ativa
+        Redis::expire($redisKey, 60 * 60 * 24);
+
+        // 2. 🚀 ATUALIZAÇÃO AUTOMÁTICA DA BD MYSQL NO MESMO PEDIDO
+        try {
+            $pageClientId = $action['data']['page_client_id'] ?? null;
+            $pageNumber = $action['data']['page_number'] ?? null;
+
+            if ($pageClientId || $pageNumber) {
+                $query = Page::where('notebook_id', $notebook_id);
+                if ($pageClientId) {
+                    $query->where('client_id', $pageClientId);
+                } else if ($pageNumber) {
+                    $query->where('page_number', $pageNumber);
+                }
+                $page = $query->first();
+
+                if ($page) {
+                    $pageData = [
+                        'client_id' => $page->client_id,
+                        'notebook_id' => $notebook_id,
+                        'page_number' => $page->page_number,
+                        'updated_at' => $timestamp,
+                    ];
+
+                    if (isset($action['data']['attach'])) {
+                        $pageData['objects_data'] = [$action['data']['attach']];
+                    } else if (isset($action['data']['block'])) {
+                        $pageData['objects_data'] = [$action['data']['block']];
+                    } else if (isset($action['data']['shape'])) {
+                        $pageData['objects_data'] = [$action['data']['shape']];
+                    } else if (isset($action['data']['stroke'])) {
+                        $pageData['objects_data'] = [$action['data']['stroke']];
+                    } else if (isset($action['data']['table'])) {
+                        $pageData['objects_data'] = [$action['data']['table']];
+                    } else if (isset($action['data']['link'])) {
+                        $pageData['objects_data'] = [$action['data']['link']];
+                    }
+
+                    if (!empty($pageData['objects_data'])) {
+                        $syncService = app(\App\Services\SyncService::class);
+                        $syncService->processPageData($pageData, $request->user());
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning("⚠️ [RecordAction] Aviso ao persistir ação na BD MySQL: " . $e->getMessage());
+        }
 
         return response()->json(['status' => 'recorded']);
     }
@@ -521,7 +567,7 @@ class CollaborativeSessionController extends Controller
      */
     public function getHistory(Request $request, $notebook_id)
     {
-        $since = $request->input('since', 0); // Timestamp em milissegundos
+        $since = (int)$request->input('since', 0); // Timestamp em milissegundos
         $redisKey = "session:{$notebook_id}:history";
 
         // Obtém todas as ações guardadas
@@ -530,7 +576,7 @@ class CollaborativeSessionController extends Controller
 
         foreach ($actionsJson as $jsonStr) {
             $action = json_decode($jsonStr, true);
-            $ts = $action['server_ts'] ?? $action['data']['timestamp'] ?? 0;
+            $ts = (int)($action['server_ts'] ?? $action['data']['timestamp'] ?? $action['timestamp'] ?? 0);
 
             if ($ts >= $since) {
                 $filteredActions[] = $action;
