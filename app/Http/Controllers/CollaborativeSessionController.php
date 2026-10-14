@@ -507,6 +507,15 @@ class CollaborativeSessionController extends Controller
 
         $redisKey = "session:{$notebook_id}:history";
 
+        // 🚀 AUTO-CURA: Verifica o tipo da chave legada (List) para evitar o erro WRONGTYPE
+        $keyType = Redis::type($redisKey);
+        // O facade Redis::type retorna uma string em predis, pode ser um objeto se for PhpRedis, forçamos cast
+        if ((string)$keyType === 'list' || (string)$keyType === '3') {
+            // 3 é o valor da constante Redis::REDIS_LIST na extensão php-redis
+            Redis::del($redisKey);
+            Log::info("♻️ [Redis] Chave legada (List) removida e convertida para ZSET: $redisKey");
+        }
+
         // 1. Guardar no Redis como um Sorted Set (ZSET) para alta performance de consulta
         Redis::zadd($redisKey, $timestamp, json_encode($action));
 
