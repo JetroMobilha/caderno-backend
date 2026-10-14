@@ -491,8 +491,8 @@ class CollaborativeSessionController extends Controller
     }
 
     /**
-     * 🚀 GUARDA UMA AÇÃO NO HISTÓRICO DA SESSÃO (REDIS + MYSQL)
-     * Atualiza a memória de sessão Redis E a base de dados MySQL no mesmo pedido!
+     * 🚀 GUARDA UMA AÇÃO NO HISTÓRICO DA SESSÃO (REDIS + MYSQL ASYNC)
+     * Atualiza a memória de sessão Redis E despacha um Job para a base de dados MySQL.
      */
     public function recordAction(Request $request, $notebook_id)
     {
@@ -507,80 +507,68 @@ class CollaborativeSessionController extends Controller
 
         $redisKey = "session:{$notebook_id}:history";
 
-        // 1. Guardar no Redis como uma lista (JSON)
-        Redis::rpush($redisKey, json_encode($action));
+        // 1. Guardar no Redis como um Sorted Set (ZSET) para alta performance de consulta
+        Redis::zadd($redisKey, $timestamp, json_encode($action));
 
         // Define que o histórico expira após 24 horas de sessão ativa
         Redis::expire($redisKey, 60 * 60 * 24);
 
-        // 2. 🚀 ATUALIZAÇÃO AUTOMÁTICA DA BD MYSQL NO MESMO PEDIDO
+        // 2. 🚀 ATUALIZAÇÃO AUTOMÁTICA DA BD MYSQL DE FORMA ASSÍNCRONA
         try {
             $pageClientId = $action['data']['page_client_id'] ?? null;
             $pageNumber = $action['data']['page_number'] ?? null;
 
             if ($pageClientId || $pageNumber) {
-                $query = Page::where('notebook_id', $notebook_id);
-                if ($pageClientId) {
-                    $query->where('client_id', $pageClientId);
-                } else if ($pageNumber) {
-                    $query->where('page_number', $pageNumber);
+                // Recuperar page para saber o número da página se faltar ou o client_id
+                $pageData = [
+                    'client_id' => $pageClientId,
+                    'notebook_id' => $notebook_id,
+                    'page_number' => $pageNumber ?? 1, // Fallback, mas preferencialmente enviado
+                    'updated_at' => $timestamp,
+                ];
+
+                // Mapear objetos recebidos para processPageData
+                if (isset($action['data']['attach'])) {
+                    $pageData['objects_data'] = [$action['data']['attach']];
+                } else if (isset($action['data']['block'])) {
+                    $pageData['objects_data'] = [$action['data']['block']];
+                } else if (isset($action['data']['shape'])) {
+                    $pageData['objects_data'] = [$action['data']['shape']];
+                } else if (isset($action['data']['stroke'])) {
+                    $pageData['objects_data'] = [$action['data']['stroke']];
+                } else if (isset($action['data']['table'])) {
+                    $pageData['objects_data'] = [$action['data']['table']];
+                } else if (isset($action['data']['link'])) {
+                    $pageData['objects_data'] = [$action['data']['link']];
                 }
-                $page = $query->first();
 
-                if ($page) {
-                    $pageData = [
-                        'client_id' => $page->client_id,
-                        'notebook_id' => $notebook_id,
-                        'page_number' => $page->page_number,
-                        'updated_at' => $timestamp,
-                    ];
-
-                    if (isset($action['data']['attach'])) {
-                        $pageData['objects_data'] = [$action['data']['attach']];
-                    } else if (isset($action['data']['block'])) {
-                        $pageData['objects_data'] = [$action['data']['block']];
-                    } else if (isset($action['data']['shape'])) {
-                        $pageData['objects_data'] = [$action['data']['shape']];
-                    } else if (isset($action['data']['stroke'])) {
-                        $pageData['objects_data'] = [$action['data']['stroke']];
-                    } else if (isset($action['data']['table'])) {
-                        $pageData['objects_data'] = [$action['data']['table']];
-                    } else if (isset($action['data']['link'])) {
-                        $pageData['objects_data'] = [$action['data']['link']];
-                    }
-
-                    if (!empty($pageData['objects_data'])) {
-                        $syncService = app(\App\Services\SyncService::class);
-                        $syncService->processPageData($pageData, $request->user());
-                    }
+                if (!empty($pageData['objects_data']) && $pageClientId) {
+                    // Despachar Job assíncrono para o MySQL não bloquear a API
+                    \App\Jobs\ProcessRealtimeUpdate::dispatch($pageData, $request->user()->id, 'editor');
                 }
             }
         } catch (\Exception $e) {
-            Log::warning("⚠️ [RecordAction] Aviso ao persistir ação na BD MySQL: " . $e->getMessage());
+            Log::warning("⚠️ [RecordAction] Aviso ao despachar ação para a BD MySQL: " . $e->getMessage());
         }
 
         return response()->json(['status' => 'recorded']);
     }
 
     /**
-     * 🚀 RETORNA O HISTÓRICO DA SESSÃO PARA SINCRONIZAÇÃO APÓS HIBERNAÇÃO
+     * 🚀 RETORNA O HISTÓRICO DA SESSÃO PARA SINCRONIZAÇÃO APÓS HIBERNAÇÃO (OTIMIZADO)
      */
     public function getHistory(Request $request, $notebook_id)
     {
         $since = (int)$request->input('since', 0); // Timestamp em milissegundos
         $redisKey = "session:{$notebook_id}:history";
 
-        // Obtém todas as ações guardadas
-        $actionsJson = Redis::lrange($redisKey, 0, -1);
+        // Obtém apenas as ações guardadas cujo score (timestamp) é >= $since
+        // Muito mais performante do que lrange e foreach manual no PHP
+        $actionsJson = Redis::zrangebyscore($redisKey, $since, '+inf');
         $filteredActions = [];
 
         foreach ($actionsJson as $jsonStr) {
-            $action = json_decode($jsonStr, true);
-            $ts = (int)($action['server_ts'] ?? $action['data']['timestamp'] ?? $action['timestamp'] ?? 0);
-
-            if ($ts >= $since) {
-                $filteredActions[] = $action;
-            }
+            $filteredActions[] = json_decode($jsonStr, true);
         }
 
         return response()->json([

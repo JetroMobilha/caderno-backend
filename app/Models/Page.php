@@ -157,6 +157,8 @@ class Page extends Model
 
     /**
      * Funde os itens JSON garantindo a integridade dos dados (Last Write Wins).
+     * Aplica "Tombstone Pruning": objetos marcados como is_deleted = true com mais de 30 dias
+     * (2592000000 milissegundos) são descartados da fusão para poupar espaço.
      */
     public static function mergeJsonItems($oldData, $newData, $userId = null, $userRole = 'student')
     {
@@ -164,6 +166,8 @@ class Page extends Model
         $newItems = is_array($newData) ? $newData : json_decode($newData ?? '[]', true) ?? [];
 
         $merged = collect($oldItems)->keyBy('id');
+        $nowMs = (int)(microtime(true) * 1000);
+        $tombstoneThresholdMs = 30 * 24 * 60 * 60 * 1000; // 30 dias em milissegundos
 
         foreach ($newItems as $newItem) {
             $id = $newItem['id'] ?? null;
@@ -189,7 +193,17 @@ class Page extends Model
             }
         }
 
-        return $merged->values()->all();
+        // Executar Tombstone Pruning
+        return $merged->filter(function ($item) use ($nowMs, $tombstoneThresholdMs) {
+            $isDeleted = !empty($item['is_deleted']) && $item['is_deleted'] == 1;
+            if ($isDeleted) {
+                $updatedAt = (int)($item['updated_at'] ?? 0);
+                if ($updatedAt > 0 && ($nowMs - $updatedAt) > $tombstoneThresholdMs) {
+                    return false; // Descartar tombstone expirado
+                }
+            }
+            return true;
+        })->values()->all();
     }
 
     /**
