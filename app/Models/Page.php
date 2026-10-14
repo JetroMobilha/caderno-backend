@@ -159,8 +159,9 @@ class Page extends Model
      * Funde os itens JSON garantindo a integridade dos dados (Last Write Wins).
      * Aplica "Tombstone Pruning": objetos marcados como is_deleted = true com mais de 30 dias
      * (2592000000 milissegundos) são descartados da fusão para poupar espaço.
+     * Suporta a proteção do conteúdo do dono (Protect Owner Content).
      */
-    public static function mergeJsonItems($oldData, $newData, $userId = null, $userRole = 'student')
+    public static function mergeJsonItems($oldData, $newData, $userId = null, $userRole = 'student', $notebookOwnerId = null, $protectOwnerContent = false)
     {
         $oldItems = is_array($oldData) ? $oldData : json_decode($oldData ?? '[]', true) ?? [];
         $newItems = is_array($newData) ? $newData : json_decode($newData ?? '[]', true) ?? [];
@@ -175,10 +176,16 @@ class Page extends Model
 
             if ($merged->has($id)) {
                 $oldItem = $merged->get($id);
-                $isOwnerOfItem = ($oldItem['creator_id'] ?? null) == $userId;
-                $canEditEverything = in_array($userRole, ['owner', 'editor']);
 
-                if (!$canEditEverything && !$isOwnerOfItem) continue;
+                // Se a proteção estiver ativa, ninguém além do owner pode editar ou apagar itens criados pelo owner.
+                if ($protectOwnerContent && $notebookOwnerId) {
+                    $itemBelongsToOwner = ($oldItem['creator_id'] ?? null) == $notebookOwnerId;
+                    $isOwnerEditing = $userId == $notebookOwnerId;
+
+                    if ($itemBelongsToOwner && !$isOwnerEditing) {
+                        continue; // Rejeitar alteração
+                    }
+                }
 
                 $oldTime = (int)($oldItem['updated_at'] ?? 0);
                 $newTime = (int)($newItem['updated_at'] ?? 0);
@@ -209,9 +216,9 @@ class Page extends Model
     /**
      * Alias para compatibilidade com a nova estrutura de objetos.
      */
-    public static function mergeObjects($oldData, $newData, $userId = null, $userRole = 'student')
+    public static function mergeObjects($oldData, $newData, $userId = null, $userRole = 'student', $notebookOwnerId = null, $protectOwnerContent = false)
     {
-        return self::mergeJsonItems($oldData, $newData, $userId, $userRole);
+        return self::mergeJsonItems($oldData, $newData, $userId, $userRole, $notebookOwnerId, $protectOwnerContent);
     }
 
     /**

@@ -78,8 +78,13 @@ class SyncService
         // Processar Base64 de Imagens antes do Merge
         $processedIncoming = $this->processBase64Objects($incomingObjects);
 
+        // Extrair owner e política de proteção
+        $notebookOwnerId = $notebook->subject ? $notebook->subject->user_id : null;
+        $config = is_string($notebook->configuration) ? json_decode($notebook->configuration, true) : (is_array($notebook->configuration) ? $notebook->configuration : []);
+        $protectOwnerContent = $config['protect_owner_content'] ?? false;
+
         // Realizar o Merge (Last Write Wins por ID de objeto)
-        $mergedObjects = Page::mergeObjects($localObjects, $processedIncoming, $user->id, $userRole);
+        $mergedObjects = Page::mergeObjects($localObjects, $processedIncoming, $user->id, $userRole, $notebookOwnerId, $protectOwnerContent);
 
         // Simplificar traços antes de salvar
         $updateData['objects_data'] = Page::simplifyUnifiedObjects($mergedObjects);
