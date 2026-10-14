@@ -60,15 +60,20 @@ class SyncService
             $updateData['is_frozen']     = isset($pageData['is_frozen']) ? (int)$pageData['is_frozen'] : ($localPage ? $localPage->is_frozen : 0);
             $updateData['is_infinite']   = isset($pageData['is_infinite']) ? (int)$pageData['is_infinite'] : ($localPage ? $localPage->is_infinite : 0); // 🚀 v29
             $updateData['is_favorite']   = isset($pageData['is_favorite']) ? (int)$pageData['is_favorite'] : ($localPage ? $localPage->is_favorite : 0); // 🚀 v29
-            $updateData['line_type']     = $pageData['line_type'] ?? ($localPage ? $localPage->line_type : null);
-            $updateData['line_spacing']  = $pageData['line_spacing'] ?? ($localPage ? $localPage->line_spacing : null);
-            $updateData['header_data']   = $pageData['header_data'] ?? ($localPage ? $localPage->header_data : null);
-            $updateData['footer_data']   = $pageData['footer_data'] ?? ($localPage ? $localPage->footer_data : null);
-            $updateData['extracted_text'] = $pageData['extracted_text'] ?? ($localPage ? $localPage->extracted_text : null);
-            $updateData['background_image_path'] = $pageData['background_image_path'] ?? ($localPage ? $localPage->background_image_path : null);
-            $updateData['background_config'] = $pageData['background_config'] ?? ($localPage ? $localPage->background_config : null);
-            $updateData['viewport_matrix'] = $pageData['viewport_matrix'] ?? ($localPage ? $localPage->viewport_matrix : null);
-            $updateData['layers'] = $pageData['layers'] ?? ($localPage ? $localPage->layers : null);
+
+            $updateData['line_type']     = array_key_exists('line_type', $pageData) ? $pageData['line_type'] : ($localPage ? $localPage->line_type : null);
+            $updateData['line_spacing']  = array_key_exists('line_spacing', $pageData) ? $pageData['line_spacing'] : ($localPage ? $localPage->line_spacing : null);
+            $updateData['header_data']   = array_key_exists('header_data', $pageData) ? $pageData['header_data'] : ($localPage ? $localPage->header_data : null);
+            $updateData['footer_data']   = array_key_exists('footer_data', $pageData) ? $pageData['footer_data'] : ($localPage ? $localPage->footer_data : null);
+            $updateData['extracted_text'] = array_key_exists('extracted_text', $pageData) ? $pageData['extracted_text'] : ($localPage ? $localPage->extracted_text : null);
+
+            // Aceitar nulos para permitir remoção do fundo
+            $bgPath = array_key_exists('background_pdf_path', $pageData) ? $pageData['background_pdf_path'] : (array_key_exists('background_image_path', $pageData) ? $pageData['background_image_path'] : ($localPage ? $localPage->background_image_path : null));
+            $updateData['background_image_path'] = $bgPath;
+
+            $updateData['background_config'] = array_key_exists('background_config', $pageData) ? $pageData['background_config'] : ($localPage ? $localPage->background_config : null);
+            $updateData['viewport_matrix'] = array_key_exists('viewport_matrix', $pageData) ? $pageData['viewport_matrix'] : ($localPage ? $localPage->viewport_matrix : null);
+            $updateData['layers'] = array_key_exists('layers', $pageData) ? $pageData['layers'] : ($localPage ? $localPage->layers : null);
         }
 
         // 🧬 MERGE UNIFICADO (v29+)
