@@ -11,9 +11,16 @@ Este backend foi desenvolvido em **Laravel 10** e fornece uma API RESTful rápid
 * 🔐 **Autenticação Segura:** Registo, Login e gestão de sessões via Laravel Sanctum.
 * 📂 **Organização Hierárquica:** Gestão de Disciplinas (Subjects) e Cadernos (Notebooks).
 * 🖨️ **Importação de PDF para Caderno:** Converte arquivos PDF em novos cadernos, com cada página do PDF se tornando uma página do caderno. (Ver [docs/flutter_pdf_import_guide.md](docs/flutter_pdf_import_guide.md) para detalhes de integração.)
-* ✍️ **Sincronização Ultrarrápida:** Motor de desenho que guarda traços (strokes) em formato JSON, concebido para gastar o mínimo de dados móveis possível.
-* ⚡ **Arquitetura de Colaboração (Server-Authoritative):** Sincronização em tempo real ultra-robusta usando WebSockets (Laravel Reverb) combinados com **Redis** para retenção de histórico P2P e gestão de presenças em memória, anulando a sobrecarga de I/O na base de dados.
-* 🤝 **Colaboração em Tempo Real:** Sistema de partilha de cadernos com permissões avançadas (Viewer / Editor / Microfone Aberto e Fechado via WebRTC).
+* ✍️ **Sincronização Ultrarrápida e Segura (Offline-First):** 
+  * Motor de desenho concebido para transferir deltas residuais e poupar dados móveis.
+  * **Resiliência a Falhas (Fail-Fast):** Envio suportado por processamento em Lotes (Batches). Em caso de falha de conexão à Internet a meio do envio, a transação é abortada com segurança garantindo que não existem quebras ou ficheiros envenenados no upload de anexos.
+  * **Optimistic Concurrency Control (OCC):** Algoritmo que previne o esmagamento de dados em tempo real, garantindo que o utilizador pode desenhar enquanto a app comunica com a base de dados em plano de fundo sem conflitos.
+* ⚡ **Arquitetura de Colaboração (Server-Authoritative):** 
+  * Sincronização em tempo real ultra-robusta usando WebSockets (Laravel Reverb) combinados com **Redis** (Sorted Sets) para retenção de histórico P2P e gestão de presenças em memória, anulando a sobrecarga de I/O na base de dados.
+  * **Motor LWW (Last-Write-Wins) e Pruning:** Respeito integral pelo quadro colaborativo (quem apaga no fim, apaga para todos). O sistema implementa ainda "Tombstone Pruning", retendo silenciosamente dados apagados apenas por **30 dias** para proteção de sincronizações hiper-atrasadas antes de os purgar de vez e prevenir "Data Bloat" (sobrecarga das memórias locais).
+* 🤝 **Colaboração e Permissões Direcionadas:** 
+  * Sistema de partilha avançado (Viewer / Editor / Voz aberta via WebRTC).
+  * **Proteção do Dono (Professor Lock):** Através da flag `protect_owner_content`, o sistema impede ativamente (pelo Backend) que estudantes ou convidados consigam apagar as notas basais ou quadros estruturados do criador original (professor), mesmo que o quadro seja "livre".
 * 💰 **Integração com Multicaixa:** Preparado para pagamentos locais em Kwanzas via referência Multicaixa para subscrições do Plano Pro.
 
 ## 🚀 Como testar o projeto localmente

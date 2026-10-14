@@ -75,7 +75,7 @@ class SyncController extends Controller
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
 
         $totalPending = $query->count();
-        $serverUpdates = $query->limit(50)->get();
+        $serverUpdates = $query->limit(10)->get();
 
         if (!empty($syncedSubjects)) {
             try { SyncRequested::dispatch($user->id); } catch (\Exception $e) {}
@@ -100,9 +100,10 @@ class SyncController extends Controller
         $lastSyncedAt = $request->query('last_synced_at');
         $query = Subject::withTrashed()->where('user_id', $user->id);
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
-        $paginated = $query->paginate(50);
+        $paginated = $query->paginate(10);
         return response()->json([
             'data' => $paginated->items(),
+            'next_page_url' => $paginated->nextPageUrl(),
             'links' => $paginated->linkCollection(),
             'meta' => [
                 'server_time' => now()->toIso8601String(),
@@ -206,7 +207,7 @@ class SyncController extends Controller
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
 
         $totalPending = $query->count();
-        $serverUpdates = $query->limit(50)->get()->map(function ($nb) use ($user) {
+        $serverUpdates = $query->limit(10)->get()->map(function ($nb) use ($user) {
             $isOwner = ($nb->subject && $nb->subject->user_id === $user->id);
             if ($isOwner) { $nb->role = 'owner'; }
             else {
@@ -254,7 +255,7 @@ class SyncController extends Controller
               ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
         })->with(['subject.user', 'sharedUsers'])->withCount('sharedUsers');
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
-        $paginated = $query->paginate(50);
+        $paginated = $query->paginate(10);
         $items = collect($paginated->items())->map(function ($nb) use ($user) {
             $isOwner = ($nb->subject && $nb->subject->user_id === $user->id);
             if ($isOwner) { $nb->role = 'owner'; }
@@ -268,6 +269,7 @@ class SyncController extends Controller
         });
         return response()->json([
             'data' => $items,
+            'next_page_url' => $paginated->nextPageUrl(),
             'links' => $paginated->linkCollection(),
             'meta' => [
                 'server_time' => now()->toIso8601String(),
@@ -306,7 +308,7 @@ class SyncController extends Controller
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
 
         $totalPending = $query->count();
-        $serverUpdates = $query->orderBy('page_number')->limit(50)->get()->map(function($p) {
+        $serverUpdates = $query->orderBy('page_number')->limit(10)->get()->map(function($p) {
             $arr = $p->toArray();
             $arr['is_deleted'] = $p->trashed() ? 1 : 0;
             $arr['objects_data'] = $p->unified_objects;
@@ -317,7 +319,7 @@ class SyncController extends Controller
             'message' => 'OK',
             'synced_pages' => $syncedPages,
             'server_updates' => $serverUpdates,
-            'has_more' => $totalPending > 50,
+            'has_more' => $totalPending > 10,
             'total_pending' => $totalPending,
             'meta' => [
                 'server_time' => now()->toIso8601String(),
@@ -339,7 +341,8 @@ class SyncController extends Controller
         if ($notebookId) $query->where('notebook_id', $notebookId);
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
 
-        $paginated = $query->orderBy('page_number')->paginate(50);
+        // 🚀 Reduzido para 5 páginas por batch devido ao peso dos traços vetoriais
+        $paginated = $query->orderBy('page_number')->paginate(5);
 
         $items = collect($paginated->items())->map(function($p) {
             $arr = $p->toArray();
@@ -350,6 +353,7 @@ class SyncController extends Controller
 
         return response()->json([
             'data' => $items,
+            'next_page_url' => $paginated->nextPageUrl(),
             'links' => $paginated->linkCollection(),
             'meta' => [
                 'server_time' => now()->toIso8601String(),
