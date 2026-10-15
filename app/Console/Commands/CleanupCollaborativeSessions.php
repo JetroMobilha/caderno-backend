@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use App\Models\CollaborativeSessionParticipant;
 use App\Models\CollaborativeSession;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
 class CleanupCollaborativeSessions extends Command
