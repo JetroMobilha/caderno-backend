@@ -388,6 +388,7 @@ class CollaborativeSessionController extends Controller
             'can_speak' => $myParticipantData ? (bool)$myParticipantData['can_speak'] : false,
             'alternative_title' => $session->alternative_title,
             'authorized_page_ids' => $authorizedPages,
+            'participants' => array_values($activeParticipants),
         ]);
     }
 
