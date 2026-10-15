@@ -122,10 +122,11 @@ class SyncController extends Controller
     public function pushNotebooks(Request $request)
     {
         $user = $request->user();
+        $clientNotebooks = $request->input('notebooks', []);
         $lastSyncedAt = $request->input('last_synced_at');
         $syncedNotebooks = [];
 
-        foreach ($request->input('notebooks', []) as $data) {
+        foreach ($clientNotebooks as $data) {
             $incomingTime = (int)($data['updated_at'] ?? 0);
             $notebook = Notebook::withTrashed()
                 ->where(function ($q) use ($user) {
@@ -341,7 +342,6 @@ class SyncController extends Controller
         $notebookId = $request->query('notebook_id');
         $lastSyncedAt = $request->query('last_synced_at');
 
-        $pushedClientIds = collect($clientPages)->pluck('client_id')->filter()->toArray();
         $query = Page::withTrashed()->whereHas('notebook', function ($q) use ($user) {
             $q->whereHas('subject', fn($s) => $s->where('user_id', $user->id))
               ->orWhereHas('sharedUsers', fn($s) => $s->where('user_id', $user->id));
