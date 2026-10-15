@@ -100,9 +100,7 @@ class SyncController extends Controller
     {
         $user = $request->user();
         $lastSyncedAt = $request->query('last_synced_at');
-        $pushedClientIds = collect($clientSubjects)->pluck('client_id')->filter()->toArray();
         $query = Subject::withTrashed()->where('user_id', $user->id);
-        if (!empty($pushedClientIds)) $query->whereNotIn('client_id', $pushedClientIds);
         if ($lastSyncedAt) $query->where('updated_at', '>', \Carbon\Carbon::parse($lastSyncedAt));
         $paginated = $query->paginate(100)->appends($request->query());
         return response()->json([
