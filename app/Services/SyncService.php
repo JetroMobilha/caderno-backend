@@ -112,9 +112,11 @@ class SyncService
         }
 
         if (!empty($pageData['is_deleted']) && $pageData['is_deleted'] == 1) {
-            if (!$localPage->trashed()) {
+            if ($localPage && !$localPage->trashed()) {
                 $localPage->delete();
                 try { PageDeleted::dispatch($localPage); } catch (\Exception $e) {}
+            } elseif (!$localPage) {
+                 return ['client_id' => $pageData['client_id'], 'status' => 'already_deleted'];
             }
         }
 
