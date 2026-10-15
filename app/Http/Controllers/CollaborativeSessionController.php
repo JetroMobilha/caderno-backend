@@ -519,6 +519,9 @@ class CollaborativeSessionController extends Controller
         // 1. Guardar no Redis como um Sorted Set (ZSET) para alta performance de consulta
         Redis::zadd($redisKey, $timestamp, json_encode($action));
 
+        // 🚀 OTIMIZAÇÃO DE MEMÓRIA: Manter apenas as últimas 2000 ações no ZSET para prevenir sobrecarga no Redis
+        Redis::zremrangebyrank($redisKey, 0, -2001);
+
         // Define que o histórico expira após 24 horas de sessão ativa
         Redis::expire($redisKey, 60 * 60 * 24);
 
