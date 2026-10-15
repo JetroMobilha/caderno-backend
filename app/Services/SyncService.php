@@ -53,11 +53,14 @@ class SyncService
         // Determinar se devemos atualizar metadados (se for mais recente, igual ou novo)
         $shouldUpdateMeta = ($incomingTime >= $localTime || !$localPage);
 
+        $maxTime = max($incomingTime, $localTime);
+        $editDate = $maxTime > 0 ? date('Y-m-d H:i:s', (int)($maxTime / 1000)) : now();
+
         $updateData = [
             'notebook_id'   => $notebook->id,
             'page_number'   => $pageData['page_number'] ?? ($localPage ? $localPage->page_number : 1),
-            'updated_at_ms' => max($incomingTime, $localTime),
-            'updated_at'    => now(),
+            'updated_at_ms' => $maxTime,
+            'updated_at'    => $editDate,
         ];
 
         if ($shouldUpdateMeta) {

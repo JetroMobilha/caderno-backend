@@ -72,7 +72,7 @@ class SyncController extends Controller
         }
 
         $query = Subject::withTrashed()->where('user_id', $user->id);
-        if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
+        if ($lastSyncedAt) $query->where('updated_at', '>', \Carbon\Carbon::parse($lastSyncedAt));
 
         $totalPending = $query->count();
         $serverUpdates = $query->limit(100)->get();
@@ -99,7 +99,7 @@ class SyncController extends Controller
         $user = $request->user();
         $lastSyncedAt = $request->query('last_synced_at');
         $query = Subject::withTrashed()->where('user_id', $user->id);
-        if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
+        if ($lastSyncedAt) $query->where('updated_at', '>', \Carbon\Carbon::parse($lastSyncedAt));
         $paginated = $query->paginate(100)->appends($request->query());
         return response()->json([
             'next_page_url' => $paginated->nextPageUrl(),
@@ -204,7 +204,7 @@ class SyncController extends Controller
               ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
         })->with(['subject.user', 'sharedUsers'])->withCount('sharedUsers');
 
-        if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
+        if ($lastSyncedAt) $query->where('updated_at', '>', \Carbon\Carbon::parse($lastSyncedAt));
 
         $totalPending = $query->count();
         $serverUpdates = $query->limit(50)->get()->map(function ($nb) use ($user) {
@@ -254,7 +254,7 @@ class SyncController extends Controller
             $q->whereHas('subject', fn($sub) => $sub->where('user_id', $user->id))
               ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
         })->with(['subject.user', 'sharedUsers'])->withCount('sharedUsers');
-        if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
+        if ($lastSyncedAt) $query->where('updated_at', '>', \Carbon\Carbon::parse($lastSyncedAt));
         $paginated = $query->paginate(50)->appends($request->query());
         $items = collect($paginated->items())->map(function ($nb) use ($user) {
             $isOwner = ($nb->subject && $nb->subject->user_id === $user->id);
@@ -305,7 +305,7 @@ class SyncController extends Controller
               ->orWhereHas('sharedUsers', fn($s) => $s->where('user_id', $user->id));
         });
         if ($notebookId) $query->where('notebook_id', $notebookId);
-        if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
+        if ($lastSyncedAt) $query->where('updated_at', '>', \Carbon\Carbon::parse($lastSyncedAt));
 
         $totalPending = $query->count();
         $serverUpdates = $query->orderBy('page_number')->limit(10)->get()->map(function($p) {
@@ -339,7 +339,7 @@ class SyncController extends Controller
               ->orWhereHas('sharedUsers', fn($s) => $s->where('user_id', $user->id));
         });
         if ($notebookId) $query->where('notebook_id', $notebookId);
-        if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
+        if ($lastSyncedAt) $query->where('updated_at', '>', \Carbon\Carbon::parse($lastSyncedAt));
 
         // 🚀 Reduzido para 5 páginas por batch devido ao peso dos traços vetoriais
         $paginated = $query->orderBy('page_number')->paginate(5)->appends($request->query());
