@@ -40,6 +40,11 @@ class CleanupCollaborativeSessions extends Command
                     'is_active' => false,
                     'ended_at' => Carbon::now()
                 ]);
+
+                // 🚀 LIMPEZA DEFINITIVA DO HISTÓRICO NO CRON: Previne que sessões futuras rebobinem dados
+                \Illuminate\Support\Facades\Redis::del("session:{$session->notebook_id}:history");
+                \Illuminate\Support\Facades\Redis::del("session:{$session->notebook_id}:chat");
+
                 $closedCount++;
             }
         }

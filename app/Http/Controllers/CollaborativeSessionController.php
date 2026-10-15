@@ -331,6 +331,11 @@ class CollaborativeSessionController extends Controller
             $activeCount = count($this->getActiveParticipantsFromRedis($session));
             if ($activeCount === 0) {
                 $session->update(['is_active' => false, 'ended_at' => now()]);
+
+                // 🚀 LIMPEZA DEFINITIVA DO HISTÓRICO: Previne que sessões futuras rebobinem dados apagados
+                Redis::del("session:{$notebook_id}:history");
+                Redis::del("session:{$notebook_id}:chat");
+                Log::info("🧹 [Session] Sessão $notebook_id vazia. Histórico e Chat do Redis expurgados.");
             }
 
             // Registo no MySQL
