@@ -75,7 +75,7 @@ class SyncController extends Controller
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
 
         $totalPending = $query->count();
-        $serverUpdates = $query->limit(10)->get();
+        $serverUpdates = $query->limit(100)->get();
 
         if (!empty($syncedSubjects)) {
             try { SyncRequested::dispatch($user->id); } catch (\Exception $e) {}
@@ -83,14 +83,14 @@ class SyncController extends Controller
 
         return response()->json([
             'message' => 'OK',
-            'synced_subjects' => $syncedSubjects,
-            'server_updates' => $serverUpdates,
-            'has_more' => $totalPending > 50,
+            'has_more' => $totalPending > 100,
             'total_pending' => $totalPending,
             'meta' => [
                 'server_time' => now()->toIso8601String(),
                 'server_time_ms' => (int)(microtime(true) * 1000)
-            ]
+            ],
+            'synced_subjects' => $syncedSubjects,
+            'server_updates' => $serverUpdates,
         ]);
     }
 
@@ -100,15 +100,15 @@ class SyncController extends Controller
         $lastSyncedAt = $request->query('last_synced_at');
         $query = Subject::withTrashed()->where('user_id', $user->id);
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
-        $paginated = $query->paginate(10);
+        $paginated = $query->paginate(100);
         return response()->json([
-            'data' => $paginated->items(),
             'next_page_url' => $paginated->nextPageUrl(),
-            'links' => $paginated->linkCollection(),
             'meta' => [
                 'server_time' => now()->toIso8601String(),
                 'server_time_ms' => (int)(microtime(true) * 1000)
-            ]
+            ],
+            'links' => $paginated->linkCollection(),
+            'data' => $paginated->items(),
         ]);
     }
 
@@ -207,7 +207,7 @@ class SyncController extends Controller
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
 
         $totalPending = $query->count();
-        $serverUpdates = $query->limit(10)->get()->map(function ($nb) use ($user) {
+        $serverUpdates = $query->limit(50)->get()->map(function ($nb) use ($user) {
             $isOwner = ($nb->subject && $nb->subject->user_id === $user->id);
             if ($isOwner) { $nb->role = 'owner'; }
             else {
@@ -235,14 +235,14 @@ class SyncController extends Controller
 
         return response()->json([
             'message' => 'OK',
-            'synced_notebooks' => $syncedNotebooks,
-            'server_updates' => $serverUpdates,
             'has_more' => $totalPending > 50,
             'total_pending' => $totalPending,
             'meta' => [
                 'server_time' => now()->toIso8601String(),
                 'server_time_ms' => (int)(microtime(true) * 1000)
-            ]
+            ],
+            'synced_notebooks' => $syncedNotebooks,
+            'server_updates' => $serverUpdates,
         ]);
     }
 
@@ -255,7 +255,7 @@ class SyncController extends Controller
               ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
         })->with(['subject.user', 'sharedUsers'])->withCount('sharedUsers');
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
-        $paginated = $query->paginate(10);
+        $paginated = $query->paginate(50);
         $items = collect($paginated->items())->map(function ($nb) use ($user) {
             $isOwner = ($nb->subject && $nb->subject->user_id === $user->id);
             if ($isOwner) { $nb->role = 'owner'; }
@@ -268,13 +268,13 @@ class SyncController extends Controller
             return $nb;
         });
         return response()->json([
-            'data' => $items,
             'next_page_url' => $paginated->nextPageUrl(),
-            'links' => $paginated->linkCollection(),
             'meta' => [
                 'server_time' => now()->toIso8601String(),
                 'server_time_ms' => (int)(microtime(true) * 1000)
-            ]
+            ],
+            'links' => $paginated->linkCollection(),
+            'data' => $items,
         ]);
     }
 
@@ -317,14 +317,14 @@ class SyncController extends Controller
 
         return response()->json([
             'message' => 'OK',
-            'synced_pages' => $syncedPages,
-            'server_updates' => $serverUpdates,
             'has_more' => $totalPending > 10,
             'total_pending' => $totalPending,
             'meta' => [
                 'server_time' => now()->toIso8601String(),
                 'server_time_ms' => (int)(microtime(true) * 1000)
-            ]
+            ],
+            'synced_pages' => $syncedPages,
+            'server_updates' => $serverUpdates,
         ]);
     }
 
@@ -352,13 +352,13 @@ class SyncController extends Controller
         });
 
         return response()->json([
-            'data' => $items,
             'next_page_url' => $paginated->nextPageUrl(),
-            'links' => $paginated->linkCollection(),
             'meta' => [
                 'server_time' => now()->toIso8601String(),
                 'server_time_ms' => (int)(microtime(true) * 1000)
-            ]
+            ],
+            'links' => $paginated->linkCollection(),
+            'data' => $items,
         ]);
     }
 
