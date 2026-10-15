@@ -100,7 +100,7 @@ class SyncController extends Controller
         $lastSyncedAt = $request->query('last_synced_at');
         $query = Subject::withTrashed()->where('user_id', $user->id);
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
-        $paginated = $query->paginate(100);
+        $paginated = $query->paginate(100)->appends($request->query());
         return response()->json([
             'next_page_url' => $paginated->nextPageUrl(),
             'meta' => [
@@ -255,7 +255,7 @@ class SyncController extends Controller
               ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
         })->with(['subject.user', 'sharedUsers'])->withCount('sharedUsers');
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
-        $paginated = $query->paginate(50);
+        $paginated = $query->paginate(50)->appends($request->query());
         $items = collect($paginated->items())->map(function ($nb) use ($user) {
             $isOwner = ($nb->subject && $nb->subject->user_id === $user->id);
             if ($isOwner) { $nb->role = 'owner'; }
@@ -342,7 +342,7 @@ class SyncController extends Controller
         if ($lastSyncedAt) $query->where('updated_at', '>', $lastSyncedAt);
 
         // 🚀 Reduzido para 5 páginas por batch devido ao peso dos traços vetoriais
-        $paginated = $query->orderBy('page_number')->paginate(5);
+        $paginated = $query->orderBy('page_number')->paginate(5)->appends($request->query());
 
         $items = collect($paginated->items())->map(function($p) {
             $arr = $p->toArray();
