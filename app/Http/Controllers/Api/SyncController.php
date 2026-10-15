@@ -311,7 +311,6 @@ class SyncController extends Controller
             $q->whereHas('subject', fn($s) => $s->where('user_id', $user->id))
               ->orWhereHas('sharedUsers', fn($s) => $s->where('user_id', $user->id));
         });
-        if (!empty($pushedClientIds)) $query->whereNotIn('client_id', $pushedClientIds);
         if ($notebookId) $query->where('notebook_id', $notebookId);
         if ($lastSyncedAt) $query->where('updated_at', '>', \Carbon\Carbon::parse($lastSyncedAt));
 
@@ -346,7 +345,6 @@ class SyncController extends Controller
             $q->whereHas('subject', fn($s) => $s->where('user_id', $user->id))
               ->orWhereHas('sharedUsers', fn($s) => $s->where('user_id', $user->id));
         });
-        if (!empty($pushedClientIds)) $query->whereNotIn('client_id', $pushedClientIds);
         if ($notebookId) $query->where('notebook_id', $notebookId);
         if ($lastSyncedAt) $query->where('updated_at', '>', \Carbon\Carbon::parse($lastSyncedAt));
 
