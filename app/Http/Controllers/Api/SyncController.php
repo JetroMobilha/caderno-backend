@@ -71,7 +71,9 @@ class SyncController extends Controller
             $syncedSubjects[] = $subject->toArray();
         }
 
+        $pushedClientIds = collect($clientSubjects)->pluck('client_id')->filter()->toArray();
         $query = Subject::withTrashed()->where('user_id', $user->id);
+        if (!empty($pushedClientIds)) $query->whereNotIn('client_id', $pushedClientIds);
         if ($lastSyncedAt) $query->where('updated_at', '>', \Carbon\Carbon::parse($lastSyncedAt));
 
         $totalPending = $query->count();
@@ -98,7 +100,9 @@ class SyncController extends Controller
     {
         $user = $request->user();
         $lastSyncedAt = $request->query('last_synced_at');
+        $pushedClientIds = collect($clientSubjects)->pluck('client_id')->filter()->toArray();
         $query = Subject::withTrashed()->where('user_id', $user->id);
+        if (!empty($pushedClientIds)) $query->whereNotIn('client_id', $pushedClientIds);
         if ($lastSyncedAt) $query->where('updated_at', '>', \Carbon\Carbon::parse($lastSyncedAt));
         $paginated = $query->paginate(100)->appends($request->query());
         return response()->json([
@@ -199,11 +203,12 @@ class SyncController extends Controller
             $syncedNotebooks[] = $notebook->toArray();
         }
 
+        $pushedClientIds = collect($clientNotebooks)->pluck('client_id')->filter()->toArray();
         $query = Notebook::withTrashed()->where(function ($q) use ($user) {
             $q->whereHas('subject', fn($sub) => $sub->where('user_id', $user->id))
               ->orWhereHas('sharedUsers', fn($shared) => $shared->where('user_id', $user->id));
         })->with(['subject.user', 'sharedUsers'])->withCount('sharedUsers');
-
+        if (!empty($pushedClientIds)) $query->whereNotIn('client_id', $pushedClientIds);
         if ($lastSyncedAt) $query->where('updated_at', '>', \Carbon\Carbon::parse($lastSyncedAt));
 
         $totalPending = $query->count();
@@ -300,10 +305,12 @@ class SyncController extends Controller
             try { SyncRequested::dispatch($user->id); } catch (\Exception $e) {}
         }
 
+        $pushedClientIds = collect($clientPages)->pluck('client_id')->filter()->toArray();
         $query = Page::withTrashed()->whereHas('notebook', function ($q) use ($user) {
             $q->whereHas('subject', fn($s) => $s->where('user_id', $user->id))
               ->orWhereHas('sharedUsers', fn($s) => $s->where('user_id', $user->id));
         });
+        if (!empty($pushedClientIds)) $query->whereNotIn('client_id', $pushedClientIds);
         if ($notebookId) $query->where('notebook_id', $notebookId);
         if ($lastSyncedAt) $query->where('updated_at', '>', \Carbon\Carbon::parse($lastSyncedAt));
 
@@ -334,10 +341,12 @@ class SyncController extends Controller
         $notebookId = $request->query('notebook_id');
         $lastSyncedAt = $request->query('last_synced_at');
 
+        $pushedClientIds = collect($clientPages)->pluck('client_id')->filter()->toArray();
         $query = Page::withTrashed()->whereHas('notebook', function ($q) use ($user) {
             $q->whereHas('subject', fn($s) => $s->where('user_id', $user->id))
               ->orWhereHas('sharedUsers', fn($s) => $s->where('user_id', $user->id));
         });
+        if (!empty($pushedClientIds)) $query->whereNotIn('client_id', $pushedClientIds);
         if ($notebookId) $query->where('notebook_id', $notebookId);
         if ($lastSyncedAt) $query->where('updated_at', '>', \Carbon\Carbon::parse($lastSyncedAt));
 
