@@ -28,10 +28,14 @@ class SyncService
             ->where('client_id', $pageData['client_id'])->first();
 
         $notebookId = $pageData['notebook_id'] ?? ($localPage ? $localPage->notebook_id : null);
-        if (!$notebookId) return null;
+        if (!$notebookId) {
+            return ['client_id' => $pageData['client_id'], 'status' => 'ignored_no_notebook'];
+        }
 
         $notebook = Notebook::find($notebookId);
-        if (!$notebook) return null;
+        if (!$notebook) {
+            return ['client_id' => $pageData['client_id'], 'status' => 'ignored_no_notebook'];
+        }
 
         if (!$userRole) {
             $isOwner = ($notebook->subject && $notebook->subject->user_id === $user->id);
@@ -39,7 +43,9 @@ class SyncService
             $userRole = $isOwner ? 'owner' : ($pivot->role ?? 'viewer');
         }
 
-        if ($userRole === 'viewer') return null;
+        if ($userRole === 'viewer') {
+            return ['client_id' => $pageData['client_id'], 'status' => 'ignored_no_permission'];
+        }
 
         $incomingTime = (int)($pageData['updated_at'] ?? 0);
         $localTime = $localPage ? ($localPage->updated_at_ms ?? 0) : 0;
