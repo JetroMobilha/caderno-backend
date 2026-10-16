@@ -102,6 +102,8 @@ class Page extends Model
             $components[] = "sc:{$this->header_data['section']}:" . ($this->header_data['section_color'] ?? '');
         }
 
+        $components[] = "bg:" . ($this->background_image_path ?? '');
+
         return implode('|', $components);
     }
 
