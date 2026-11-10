@@ -606,12 +606,17 @@ class CollaborativeSessionController extends Controller
             return response()->json(['error' => 'No message provided'], 400);
         }
 
+        // 🚀 Garantir que o sender_name do utilizador autenticado está presente se não for enviado.
+        if (!isset($message['sender_name'])) {
+            $message['sender_name'] = $request->user()->name;
+        }
+
         $redisKey = "session:{$notebook_id}:chat";
 
         // Guardar no Redis como uma lista (JSON)
         Redis::rpush($redisKey, json_encode($message));
 
-        // Limita o histórico de chat às últimas 100 mensagens (Opcional, mas recomendado)
+        // Limita o histórico de chat às últimas 100 mensagens
         Redis::ltrim($redisKey, -100, -1);
 
         // Define que o histórico expira após 4 horas
