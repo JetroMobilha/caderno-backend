@@ -147,6 +147,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // 💬 REDIS: Chat da Sessão
     Route::post('/notebooks/{id}/session/chat', [App\Http\Controllers\CollaborativeSessionController::class, 'recordChat']);
     Route::get('/notebooks/{id}/session/chat', [App\Http\Controllers\CollaborativeSessionController::class, 'getChatHistory']);
+    Route::post('/notebooks/{id}/session/chat/read', [App\Http\Controllers\CollaborativeSessionController::class, 'markChatRead']); // 🚀 Novo
 });
 
 

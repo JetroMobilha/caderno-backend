@@ -679,6 +679,10 @@ class CollaborativeSessionController extends Controller
             $userNamesMap = \App\Models\User::whereIn('id', array_unique($missingUserIds))->pluck('name', 'id')->toArray();
         }
 
+        // 🚀 RECUPERAR RECIBOS DE LEITURA (READ RECEIPTS)
+        $readReceiptsKey = "session:{$notebook_id}:chat_reads";
+        $allReadReceipts = Redis::hgetall($readReceiptsKey);
+
         foreach ($messagesJson as $jsonStr) {
             $msg = json_decode($jsonStr, true);
             if (!is_array($msg)) continue;
@@ -689,6 +693,13 @@ class CollaborativeSessionController extends Controller
 
             if ($sId && (empty($sName) || in_array($sName, ['Eu', 'Você', 'Colega', 'Um colega']))) {
                 $msg['sender_name'] = $userNamesMap[$sId] ?? 'Utilizador #' . $sId;
+            }
+
+            // 🚀 INJETAR RECIBOS DE LEITURA NA MENSAGEM
+            if ($msgId && isset($allReadReceipts[$msgId])) {
+                $msg['read_by'] = json_decode($allReadReceipts[$msgId], true) ?? [];
+            } else {
+                $msg['read_by'] = [];
             }
 
             $fingerprint = ($msg['sender_id'] ?? '') . '_' . ($msg['timestamp'] ?? '') . '_' . ($msg['message'] ?? $msg['image_url'] ?? $msg['audio_url'] ?? '');
@@ -706,5 +717,35 @@ class CollaborativeSessionController extends Controller
             'status' => 'ok',
             'messages' => $messages
         ]);
+    }
+
+    /**
+     * 👀 GUARDA RECIBOS DE LEITURA DO CHAT NO REDIS
+     */
+    public function markChatRead(Request $request, $notebook_id)
+    {
+        $userId = $request->user()->id;
+        $msgIds = $request->input('msg_ids', []);
+
+        if (empty($msgIds)) {
+            return response()->json(['status' => 'ignored']);
+        }
+
+        $readReceiptsKey = "session:{$notebook_id}:chat_reads";
+
+        foreach ($msgIds as $msgId) {
+            $currentReadsJson = Redis::hget($readReceiptsKey, $msgId);
+            $currentReads = $currentReadsJson ? json_decode($currentReadsJson, true) : [];
+
+            if (!in_array($userId, $currentReads)) {
+                $currentReads[] = $userId;
+                Redis::hset($readReceiptsKey, $msgId, json_encode($currentReads));
+            }
+        }
+
+        // Define que os recibos expiram em 4 horas, em sintonia com o chat
+        Redis::expire($readReceiptsKey, 60 * 60 * 4);
+
+        return response()->json(['status' => 'read_recorded']);
     }
 }
