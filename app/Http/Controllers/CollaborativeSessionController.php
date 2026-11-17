@@ -606,8 +606,8 @@ class CollaborativeSessionController extends Controller
             return response()->json(['error' => 'No message provided'], 400);
         }
 
-        // 🚀 Garantir que o sender_name do utilizador autenticado está presente se não for enviado.
-        if (!isset($message['sender_name'])) {
+        // 🚀 Garantir que o sender_name do utilizador autenticado está presente e NUNCA é 'Eu' ou 'Você'.
+        if (!isset($message['sender_name']) || empty($message['sender_name']) || $message['sender_name'] === 'Eu' || $message['sender_name'] === 'Você') {
             $message['sender_name'] = $request->user()->name;
         }
 
