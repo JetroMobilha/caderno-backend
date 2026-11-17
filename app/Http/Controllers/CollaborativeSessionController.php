@@ -652,7 +652,7 @@ class CollaborativeSessionController extends Controller
     }
 
     /**
-     * 💬 RETORNA O HISTÓRICO DE CHAT DA SESSÃO (DESDUPLICADO)
+     * 💬 RETORNA O HISTÓRICO DE CHAT DA SESSÃO (DESDUPLICADO & NOME GARANTIDO ZERO-SQL)
      */
     public function getChatHistory(Request $request, $notebook_id)
     {
@@ -662,13 +662,36 @@ class CollaborativeSessionController extends Controller
         $messages = [];
         $seenIds = [];
 
+        // 🚀 RESOLVER NOMES LEGADOS NO HISTÓRICO SE INCOMPLETOS (Cache em Memória de Request)
+        $missingUserIds = [];
+        foreach ($messagesJson as $jsonStr) {
+            $msg = json_decode($jsonStr, true);
+            if (!is_array($msg)) continue;
+            $sName = $msg['sender_name'] ?? '';
+            $sId = $msg['sender_id'] ?? null;
+            if ($sId && (empty($sName) || in_array($sName, ['Eu', 'Você', 'Colega', 'Um colega']))) {
+                $missingUserIds[] = $sId;
+            }
+        }
+
+        $userNamesMap = [];
+        if (!empty($missingUserIds)) {
+            $userNamesMap = \App\Models\User::whereIn('id', array_unique($missingUserIds))->pluck('name', 'id')->toArray();
+        }
+
         foreach ($messagesJson as $jsonStr) {
             $msg = json_decode($jsonStr, true);
             if (!is_array($msg)) continue;
 
             $msgId = $msg['msg_id'] ?? null;
-            $fingerprint = ($msg['sender_id'] ?? '') . '_' . ($msg['timestamp'] ?? '') . '_' . ($msg['message'] ?? $msg['image_url'] ?? $msg['audio_url'] ?? '');
+            $sId = $msg['sender_id'] ?? null;
+            $sName = $msg['sender_name'] ?? '';
 
+            if ($sId && (empty($sName) || in_array($sName, ['Eu', 'Você', 'Colega', 'Um colega']))) {
+                $msg['sender_name'] = $userNamesMap[$sId] ?? 'Utilizador #' . $sId;
+            }
+
+            $fingerprint = ($msg['sender_id'] ?? '') . '_' . ($msg['timestamp'] ?? '') . '_' . ($msg['message'] ?? $msg['image_url'] ?? $msg['audio_url'] ?? '');
             $key = $msgId ?? $fingerprint;
 
             if (isset($seenIds[$key])) {
