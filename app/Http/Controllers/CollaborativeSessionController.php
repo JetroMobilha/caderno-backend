@@ -597,7 +597,7 @@ class CollaborativeSessionController extends Controller
     }
 
     /**
-     * 💬 GUARDA UMA MENSAGEM DE CHAT NA SESSÃO (REDIS)
+     * 💬 GUARDA UMA MENSAGEM DE CHAT NA SESSÃO (REDIS COM DESDUPLICAÇÃO ROBUSTA)
      */
     public function recordChat(Request $request, $notebook_id)
     {
@@ -611,7 +611,33 @@ class CollaborativeSessionController extends Controller
             $message['sender_name'] = $request->user()->name;
         }
 
+        $msgId = $message['msg_id'] ?? null;
+        $senderId = $message['sender_id'] ?? null;
+        $content = $message['message'] ?? $message['image_url'] ?? $message['audio_url'] ?? '';
+        $timestamp = $message['timestamp'] ?? '';
+
         $redisKey = "session:{$notebook_id}:chat";
+
+        // 🚀 DESDUPLICAÇÃO NO REDIS: Verificar mensagens existentes antes de dar rpush
+        $existingMessagesJson = Redis::lrange($redisKey, 0, -1);
+        foreach ($existingMessagesJson as $jsonStr) {
+            $existing = json_decode($jsonStr, true);
+            if (!is_array($existing)) continue;
+
+            // 1. Checar por msg_id idêntico
+            if ($msgId && isset($existing['msg_id']) && (string)$existing['msg_id'] === (string)$msgId) {
+                return response()->json(['status' => 'already_exists']);
+            }
+
+            // 2. Checar por impressão digital de conteúdo (sender_id + timestamp + conteúdo)
+            $exSender = $existing['sender_id'] ?? null;
+            $exContent = $existing['message'] ?? $existing['image_url'] ?? $existing['audio_url'] ?? '';
+            $exTs = $existing['timestamp'] ?? '';
+
+            if ($senderId && (string)$exSender === (string)$senderId && $timestamp && $exTs === $timestamp && $content && $exContent === $content) {
+                return response()->json(['status' => 'already_exists']);
+            }
+        }
 
         // Guardar no Redis como uma lista (JSON)
         Redis::rpush($redisKey, json_encode($message));
@@ -626,16 +652,32 @@ class CollaborativeSessionController extends Controller
     }
 
     /**
-     * 💬 RETORNA O HISTÓRICO DE CHAT DA SESSÃO
+     * 💬 RETORNA O HISTÓRICO DE CHAT DA SESSÃO (DESDUPLICADO)
      */
     public function getChatHistory(Request $request, $notebook_id)
     {
         $redisKey = "session:{$notebook_id}:chat";
         $messagesJson = Redis::lrange($redisKey, 0, -1);
 
-        $messages = array_map(function($jsonStr) {
-            return json_decode($jsonStr, true);
-        }, $messagesJson);
+        $messages = [];
+        $seenIds = [];
+
+        foreach ($messagesJson as $jsonStr) {
+            $msg = json_decode($jsonStr, true);
+            if (!is_array($msg)) continue;
+
+            $msgId = $msg['msg_id'] ?? null;
+            $fingerprint = ($msg['sender_id'] ?? '') . '_' . ($msg['timestamp'] ?? '') . '_' . ($msg['message'] ?? $msg['image_url'] ?? $msg['audio_url'] ?? '');
+
+            $key = $msgId ?? $fingerprint;
+
+            if (isset($seenIds[$key])) {
+                continue; // Ignorar duplicadas
+            }
+
+            $seenIds[$key] = true;
+            $messages[] = $msg;
+        }
 
         return response()->json([
             'status' => 'ok',
